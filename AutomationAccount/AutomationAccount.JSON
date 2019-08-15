@@ -78,9 +78,7 @@
           "location": "[parameters('automationAccountRegion')]",
           "dependsOn": [],
           "tags": {
-
             "Environment": "[parameters('EnvironmentTag')]"
-
           },
           "properties": {
             "sku": {

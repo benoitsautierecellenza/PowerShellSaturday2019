@@ -3,8 +3,8 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "automationAccountName": {
-        "value": "Lab"
-    }
+        "value": "Lab999"
+    },
     "automationAccountRegion": {
       "value" : "WestEurope"
     },
