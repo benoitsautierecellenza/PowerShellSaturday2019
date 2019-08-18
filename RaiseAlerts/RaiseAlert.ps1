@@ -130,6 +130,30 @@ Write-Output "DEBUG"
                 Write-output "This is a Virtual machine related Event"
 
             }
+            "Microsoft.Storage/storageAccounts"
+            {
+                # This is an Resource Manager VM
+                Write-output "This is a Storage Account event"
+                Write-output "operationName : $($WebhookBody.Data.AlertContext.operationName)"
+                Write-Output "resourceType: $ResourceType" 
+                Write-Output "resourceName: $ResourceName" 
+                Write-Output "resourceGroupName: $ResourceGroupName" 
+                Write-Output "subscriptionId: $SubId" 
+                If ($($WebhookBody.Data.essentials.MonitorCondition) -eq "Fired")
+                {
+                    # Process only new alerts, not closed or acknwoledged
+                    $Parameters = @{
+                        "ResourceName"=$ResourceName;
+                        "resourceGroupName"=$ResourceGroupName
+                    }                    
+                    $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
+                    -AutomationAccountName $AutomationAccountName  `
+                    -Name "Process-StorageAccount" `
+                    -Parameters $Parameters `
+                    -Wait
+                $Job
+                }
+            }
             "microsoft.keyvault/vaults" {
                 Write-Output "This a KeyVault related Event"
                 Write-Output "resourceType: $ResourceType" 
@@ -141,12 +165,12 @@ Write-Output "DEBUG"
                     "resourceGroupName"=$ResourceGroupName
                 }
         # DEBUG MODE
-        #        $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
-        #            -AutomationAccountName $AutomationAccountName  `
-        #            -Name "Process-KeyVault" `
-        #            -Parameters $Parameters `
-        #            -Wait
-        #        $Job
+                $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
+                    -AutomationAccountName $AutomationAccountName  `
+                    -Name "Process-KeyVault" `
+                    -Parameters $Parameters `
+                    -Wait
+                $Job
         # DEBUG MODE
                     # Process Job At end to close Alert or not
             }
