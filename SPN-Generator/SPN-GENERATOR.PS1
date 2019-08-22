@@ -1,231 +1,408 @@
-﻿#
-# Create Azure AD Application & Service Principal 
+#. .\SPN-GENERATOR.PS1 -SolutionResourceGroupName "DemoSPN" -SolutionKeyVaultName "DemoSPN" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536"  -AutomationCertificateLifetimePolicy 365 -AzureADApplicationName testspn
+
+# TODO
+# -Durée de validité trop longue sur le certificat à corriger (donc sur la policy)
+# -Prise en charge application existante, on créé donc un secret/certificat supplémentaire
+# -Mise en place tag pour identifier les secrets liés entre eux
+# -Mise en place vérification membership Azure AD administrator
+
 #
-# Version 1.0 : Benoît SAUTIERE - Initial Release
+# Benoît SAUTIERE - Version 1.0 - Initial version
 #
-# Corriger le problème du générateur de mot de passe avec le nouveau module
-
-# Cloud application administrator tester avec ce rôle pour le check
-# Indiquer que c'est bon a avoir dans une chaine CI/CD pour éviter 
-# use case : Par défaut tout le monde a des droits de créer des SPN dans Azure AD
-# probleme, on ne peut pas enforcer une politique de nommage ou de configuration, on se retrouve donc avec 10 applications portant le même nom
-# En plus cela implique de donner des privilèges Azure AD, même si on peut limiter avec Azure AD Security (retrouver le rôle)
-# problème, on va avoir beaucoup de SPN à créer
-# solution : il faut l'automatiser
-# Solution V1 : ce script powershell
-# Solution V2 : Ce script Powershell dans un Pipeline Jenkins ou Azure DevOps (donc instanciable par des consommateurs)
-# Solution V3 : transformer cela en Azure Function
-
-
 Param(
-[Parameter(Mandatory=$False)]
-[ValidateRange(20,720)]
-[Int]$SecretLifetime = 365,
+    [Parameter(Mandatory=$True)]
+    [ValidateNotnullorEmpty()]
+    [String]$SolutionResourceGroupName,
 
-[Parameter(Mandatory=$True)]
-[String]$AzureADApplicationDisplayName, 
+    [Parameter(Mandatory=$True)]
+    [ValidateNotnullorEmpty()]
+    [String]$SolutionKeyVaultName,
 
-[Parameter(Mandatory=$True)]
-[String]$CustomKeyIdentifier, 
+    [Parameter(Mandatory=$True)]
+    [ValidateNotnullorEmpty()]
+    [String]$SolutionSubscriptionID,
 
-[Parameter(Mandatory=$False)]
-[String]$AzureADApplicationPassword,
+    [Parameter(Mandatory=$True)]
+    [ValidateNotnullorEmpty()]
+    [String]$AzureADApplicationName,
 
-[Parameter(Mandatory=$false)]
-[String]$SubscriptionKeyVaultName,
-
-[Parameter(Mandatory=$False)]
-[ValidateSet($True,$False)]
-[Bool]$SubscriptionStatus = $true
+    [Parameter(Mandatory=$False)]
+    [ValidateRange(1,720)]
+    [Int]$AutomationCertificateLifetimePolicy = 365
 )
+#
+# Import required modules
+#
+$module = Get-Module 'AzureAD.Standard.Preview' -ListAvailable -ErrorAction SilentlyContinue
+if (!$module) 
+{
+    Write-Output "[SPN-Generator] - Azure AD module AzureAD.Standard.Preview is not installed."
+    $module = Install-Module -Name 'AzureAD.Standard.Preview' -Force -Scope CurrentUser -SkipPublisherCheck -AllowClobber 
+    Write-Host "[SPN-Generator] - AzureAD.Standard.Preview Module now installed"
+}
+else {
+    Write-Output "[SPN-Generator] - Azure AD module AzureAD.Standard.Preview is already installed."
+}
+try {
+    import-module $module.RootModule    
+}
+catch {
+    Write-Error "[SPN-Generator] - Unable to load AzureAD.Standard.Preview module : $($_.Exception.Message)." 
+    exit   
+}
+$module = Get-Module 'randompasswordgenerator' -ListAvailable -ErrorAction SilentlyContinue
+if (!$module) 
+{
+    Write-Output "[SPN-Generator] - Module randompasswordgenerator is not installed."
+    $module = Install-Module -Name 'randompasswordgenerator' -Force -Scope CurrentUser -SkipPublisherCheck -AllowClobber 
+    Write-Host "[SPN-Generator] - Module randompasswordgenerator now installed"
+}
+else {
+    Write-Output "[SPN-Generator] - module randompasswordgenerator is already installed."
+}
+try {
+    import-module randompasswordgenerator 
+}
+catch {
+    Write-Error "[SPN-Generator] - Unable to load AzureAD.Standard.Preview module : $($_.Exception.Message)." 
+    exit   
+}
 #
 # Constants
 #
-$PasswordLenght = 16
-$PasswordComplexityLenght = 10
-
-
-$SubscriptionIDSecretName = "RGSubscriptionID"
-$ServicePrincipalIDSecretName = "RGServicePrincipalID"
-$AzureADTenantIDSecretName = "RGAzureADTenantID"
-$SubscriptionStatusSecretName = "RGSubscriptionStatus"
-$ServicePrincipalCredentialName = "RGAzureADApplicationPassword"
+$PasswordLenght = 16                                        # Password Lenght for PFX certificate export
+$PercentLowerCaseLetters = 0.25
+$PercentUpperCaseLetters = 0.25
+$PercentNumbers = 0.25
+$PercentCharacters = 0.25
+$AssignedRole = "Owner"
+$PfxCertPathForRunAsAccount = "C:\TEMP\CERTIFICATE.PFX"
+$AzureADAPplicationSubjectName = "cn=$AzureADApplicationName"
 #
-# Parameter validation
+# Check if already connected to an Azure Subscription
 # OK
-If ([string]::IsNullOrEmpty($CustomKeyIdentifier) -eq $True)
-{
-    $message =  "[ManageServicePrincipals] - Custom Key Identifier parameter is missing."
-    Write-Warning $message
-    Exit
-}
-# OK
-If ($CustomKeyIdentifier.StartsWith("https://") -eq $False)
-{
-    $message =  "[ManageServicePrincipals] - Custom Key Identifier parameter must start with https//."
-    Write-Warning $message
-    exit
-}
-#
-# Password Generator
-# 
-#If ([string]::IsNullOrEmpty($AzureADApplicationPassword) -eq $True)
-#{
-#    #
-#    # ne fonctionne plus en .Core!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-#    #
-#    [Reflection.Assembly]::LoadWithPartialName(“System.Web”) | Out-Null
-#    $AzureADApplicationPassword = [System.Web.Security.Membership]::GeneratePassword($PasswordLenght ,$PasswordComplexityLenght)
-#    $message =  "[ManageServicePrincipals] - No password provided, complex password will be generated."
-#    Write-host -ForegroundColor Green $message
-#}
-$currentDate = Get-Date
-$NotAfter = $currentDate.addDays(($SecretLifetime -1)) 
-Try
-{
+$CheckAzureContext = Get-AzContext
+If ([string]::IsNullOrEmpty($CheckAzureContext) -eq $True) {
     #
-    # Check if connected to Azure AD
+    # No current context => Not connected to an Azure Subscription
     # OK
-    Get-AzureADCurrentSessionInfo -ErrorAction Ignore
-    $message =  "[ManageServicePrincipals] - User $((Get-AzureADCurrentSessionInfo).Account.ID) connected to Azure AD Tenant $((Get-AzureADTenantDetail).displayname)."
-    Write-host -ForegroundColor Green $message
-}
-Catch
-{
-    $message = "[ManageServicePrincipals] - Not connected to Azure AD. Please use Connect-AzureAD."
-    Write-Warning $message
+    Write-Error "[SPN-Generator] : Not connected to Azure."
     Exit
 }
 #
-# Check is user is connected to an Azure subscription
-#
-$testAzureContext = Get-AzureRmContext
-If ([string]::IsNullOrEmpty($testAzureContext) -eq $True)
-{
-    #
-    # Not connected to Azure
-    # OK
-    $message = "[ManageServicePrincipals] - Not connected to Azure. Please use Login-AzureRmAccount."
-    Write-Warning $message
-    exit
-}
-#
-# List available subscriptions
+# Select subscription on witch solution will be deployed
 # OK
-$Listsubscriptions = Get-AzureRmSubscription -ErrorAction SilentlyContinue
-If ([string]::IsNullOrEmpty($Listsubscriptions) -eq $True)
-{
+$Listsubscriptions = Get-AzSubscription -ErrorAction SilentlyContinue
+If ([string]::IsNullOrEmpty($Listsubscriptions) -eq $True) {
     #
     # Unable to retreive list of Azure subscriptions
     # OK
-    $message = "[ManageServicePrincipals] - Unable to list available Azure Subscription."
-    Write-Warning $message
+    Write-Error "[SPN-Generator] - Unable to list available Azure Subscription."
     Exit
 }
-If (($Listsubscriptions.count) -gt 1)
-{
-    $message =  "[ManageServicePrincipals] - More than one Azure subscription, please select subscription where Resource Group as A service is deployed."
-    Write-host -ForegroundColor Green $message
-    $SelectedSubscription = $Listsubscriptions | select-Object Name, SubscriptionID | Out-GridView -PassThru -Title "Select Azure Subscription where Resource Group As a Service was deployed."
-}
-Else
-{
-    $SelectedSubscription = $Listsubscriptions
-}
-If ([string]::IsNullOrEmpty($SelectedSubscription) -eq $True)
-{
-    #
-    # No Azure subscription selected
-    # OK
-    $message = "[ManageServicePrincipals] - No Azure subscription Selected."
-    Write-Warning $message
-    Exit
-}
-Set-AzureRmContext -SubscriptionId $SelectedSubscription.SubscriptionId | Out-Null
-$message = "[ManageServicePrincipals] - Connected to Azure subscription $($SelectedSubscription.SubscriptionID)."
-Write-host -ForegroundColor Green $message
-
-#
-# User must be connected to a subscription
-#
-If (($Listsubscriptions.count) -Gt 1)
-{
-    #
-    # user have access to more than one subscription so no need to ask witch subscription.
-    #
-    $assignsubscription = $Listsubscriptions | select-Object Name, SubscriptionID | Out-GridView -PassThru -Title "Select Azure Subscription where role assignment must be performed."
-    If ([string]::IsNullOrEmpty($assignsubscription) -eq $True)
-    {
-        $message = "[ManageServicePrincipals] - No subscription selected. Role assignment must be performed manually."
-        Write-Warning $message
-        $assignsubscription = $Null
+If (($Listsubscriptions.count) -gt 0) {
+    If ([string]::IsNullOrEmpty($Listsubscriptions.id -match $solutionsubscriptionID) -eq $True) {
+        #
+        # Subscription not found
+        # OK
+        Write-Error "[SPN-Generator] - Subscription ID $solutionsubscriptionID not visible in current context."
+        Exit
+    }
+    else {
+        #
+        # Subscription found
+        # OK
+        Write-output "[SPN-Generator] - Subscription $solutionsubscriptionID visible in current context."
+        Set-AzContext -SubscriptionId $solutionsubscriptionID | Out-Null
     }
 }
-Else
-{
+Else {
     #
-    # No choice because same as solution
-    #
-    $assignsubscription = $SelectedSubscription
+    # Required Subscription is not reachable
+    # OK
+    Write-Error "[SPN-Generator] - Subscription ID $solutionsubscriptionID not visible in current context."
+    Exit
 }
-
-
+Try {
+    #
+    # Check if connected to Azure AD
+    # OK
+    Get-AzureADTenantDetail -ErrorAction SilentlyContinue  | Out-Null
+    Write-Host "[SPN-Generator] - Connected to Azure AD."
+}
+Catch {
+    #
+    # Not connected to an Azure AD Tenant
+    # OK
+    Write-Error "[SPN-Generator] - Not connected to Azure AD. Please connect to Azure AD Tenant $((Get-AzContext).tenant.id) and relaunch the script."
+    exit
+}
 #
-# Check if Azure AD Application exists
+# Check if solution Resource Group exists
 # OK
-$testAzureAdApplication = Get-AzureADApplication | where-Object {$_.displayname -like $AzureADApplicationDisplayName}
+$CheckResourceGroup = Get-AzResourceGroup -Name $SolutionResourceGroupname -ErrorAction SilentlyContinue
+If([string]::IsNullOrEmpty($CheckResourceGroup)) {
+    #
+    # Resource Group does not exists
+    # OK
+    Write-Error "[SPN-Generator] - Resource Group $SolutionResourceGroupname does not exists in subscription $((Get-AzContext).Subscription.id)."
+    exit
+}
+else {
+    #
+    # Resource Group exists in subscription
+    # OK
+    Write-output "[SPN-Generator] - Resource Group $SolutionResourceGroupname exists in subscription $((Get-AzContext).Subscription.id)."
+}
+#
+# Check if solution Keyvault exists
+# OK
+$checkKeyVault = Get-AzKeyVault -Name $SolutionKeyVaultName -ErrorAction SilentlyContinue
+If([string]::IsNullOrEmpty($CheckKeyVault)) {
+    #
+    # Solution Key Vault does not exists
+    # OK
+    Write-Error "[SPN-Generator] - Required KeyVault $SolutionKeyVaultName does not exists in subscription $((Get-AzContext).Subscription.id)."
+    exit
+}
+else {
+    #
+    # KeyVault Exists in subscription
+    # OK
+    Write-Output "[SPN-Generator] - Required KeyVault $SolutionKeyVaultName does exists in subscription $((Get-AzContext).Subscription.id)."
+}
+#
+# Enforce permissions on secrets
+# OK
+try {
+    Write-Output "[SPN-Generator] - Set Permisions to Secrets on Key Vault $SolutionKeyVaultName for $((Get-AzContext).Account.id)."
+    $AzureADUSer = Get-AzureADUser -filter ("userprincipalname eq '" + $((Get-AzureADCurrentSessionInfo).account.id) + "'")
+    Set-AzKeyVaultAccessPolicy `
+        -ResourceGroupName $SolutionResourceGroupName `
+        -VaultName $SolutionKeyVaultName `
+        -ObjectId $AzureADUSer.ObjectID `
+        -PermissionsToSecrets get,list,set,delete,backup,restore,recover,purge 
+    Write-Output "[SPN-Generator] - Permisions to Secrets on Key Vault $SolutionKeyVaultName sucessfully configured for  $((Get-AzContext).Account.id)."        
+}
+catch {
+    #
+    # Unable to set access policy on Key Vault
+    # OK
+    Write-Error "[SPN-Generator] - Unable set access policies on KeyVault $SolutionKeyVaultName : $($_.Exception.Message)."    
+    exit
+}
+#
+# Check Azure AD Application
+# OK
+$testAzureAdApplication = Get-AzureADApplication -All $true | where-Object {$_.displayname -like $AzureADApplicationName}
 If ([string]::IsNullOrEmpty($testAzureAdApplication) -eq $True)
 {
     #
     # Azure AD application not yet exists, check if another application is not using the same CustomKeyIdentifier
     # OK
-    $message = "[ManageServicePrincipals] - Azure AD Application $AzureADApplicationDisplayName does not already exists in your Azure AD tenant."
-    Write-Host -ForegroundColor Green $message
-    $TestCustomKeyIdentifier = Get-AzureADApplication | select-Object DisplayName, IdentifierUris -ExpandProperty IdentifierUris | where-Object {$_.IdentifierUris -Eq $CustomKeyIdentifier}
-    If ([string]::IsNullOrEmpty($TestCustomKeyIdentifier) -eq $True)
-    {
-        $message = "[ManageServicePrincipals] - Custom Key Identifier $CustomKeyIdentifier is not already used by another Azure AD Application."
-        Write-Host -ForegroundColor Green $message
-    }
-    Else
-    {
-        $message = "[ManageServicePrincipals] - Custom Key Identifier $CustomKeyIdentifier is already used by another Azure AD Application : $($TestCustomKeyIdentifier.DisplayName)."
-        Write-Warning $message
-        Exit
-    }                              
-    Try
-    {
-        $message = "[ManageServicePrincipals] - Creating a new Azure AD Application named $AzureADApplicationDisplayName with Keyidentifier : $CustomKeyIdentifier."
-        Write-Host -ForegroundColor green $message
-        $AzureADApplication = New-AzureADApplication -DisplayName $AzureADApplicationDisplayName -IdentifierUris $CustomKeyIdentifier                                 
-        New-AzureADApplicationPasswordCredential -ObjectId $AzureADApplication.ObjectId -CustomKeyIdentifier $CustomKeyIdentifier  -StartDate $currentDate -EndDate $endDate -Value $AzureADApplicationPassword
-        $NewAzureADServicePrincipal = New-AzureADServicePrincipal -AppId $AzureADApplication.AppId
-        $message = "[ManageServicePrincipals] - New Azure AD Application created Successfully."
-        Write-Host -ForegroundColor Green $message
-    }
-    Catch
-    {
-        $message = "[ManageServicePrincipals] - Error while creating Azure AD Application : : $($_.Exception.Message)."   
-        Write-Error $message
-        If ([string]::IsNullOrEmpty($AzureADApplication) -eq $False)
-        {
-            Remove-AzureADApplication -ObjectId $AzureADApplication.ObjectID
-        }                          
-    }
-    Write-host "***************************************************************************"
-    Write-host "Service Principal Id: $($NewAzureADServicePrincipal.AppId)"
-    Write-host "Service Principal Key: $AzureADApplicationPassword"
-    Write-host "Azure AD Tenant ID: $($NewAzureADServicePrincipal.AppOwnerTenantId)"
-    Write-host "***************************************************************************"                                                           
-    $message =  "[ManageServicePrincipals] - Operation completed successfully."
-    Write-Host -ForegroundColor green $message
+    $message = "[SPN-Generator] - Azure AD Application $AzureADApplicationName does not already exists in your Azure AD tenant."
+    Write-Host $message
 }
-Else
+else 
+{
+    If ($testAzureAdApplication.count -eq 1)
+    {
+        #
+        # Azure AD Application already exists in Azure AD, will be deleted and reconfigured
+        # OK
+        $Message = "[SPN-Generator] - Azure AD Application $AzureADApplicationName already exists in Azure AD. Will be deleted"
+        Write-Warning $message
+        Get-AzureADApplication -ObjectId $testAzureAdApplication.ObjectId | Remove-AzureADApplication       
+            
+    }
+    else {
+        #
+        # Corner case, multiple Azure AD application withe the same displayname
+        # OK
+        Write-Error "[SPN-Generator] - Too many application with  the same name. Unable to configure application."
+        Exit
+    }
+}
+#
+# Check if certificate exists (if yes delete)
+# OK
+$testcertificate = Get-AzKeyVaultCertificate `
+    -VaultName $SolutionKeyVaultName `
+    -Name $AzureADApplicationName `
+    -ErrorAction SilentlyContinue
+If ($testcertificate.count -eq 0)
 {
     #
-    # Azure AD Application name already exists in Azure AD
+    # certificate with this name does not existe un KeyVault
     # OK
-    $message = "[ManageServicePrincipals] - Azure AD Application $AzureADApplicationDisplayName already exists in your Azure AD tenant."       
-    Write-Warning $message
-    Exit
+    Write-Output "[SPN-Generator] - Certificate named $AzureADApplicationName does not exists yet in solution Key Vault $SolutionKeyVaultName."     
+}
+else 
+{
+    #
+    # Certificate with this name already exists in solution key vault, will be deleted
+    # OK 
+    Write-Output "[SPN-Generator] - Certificate named $AzureADApplicationName already exists in solution Key Vault $SolutionKeyVaultName. Delete certificate."
+    Remove-AzKeyVaultCertificate `
+        -VaultName $SolutionKeyVaultName `
+        -Name $AzureADApplicationName `
+        -Force
+}
+#
+# Generating new Self-signed certificate
+# OK
+Write-output "[SPN-Generator] - Creating auto-signed certificate in KeyVault $SolutionKeyVaultName"
+$Policy = New-AzKeyVaultCertificatePolicy `
+    -SecretContentType "application/x-pkcs12" `
+    -SubjectName $AzureADAPplicationSubjectName `
+    -IssuerName "Self" `
+    -ValidityInMonths $AutomationCertificateLifetimePolicy `
+    -ReuseKeyOnRenewal
+$AddAzureKeyVaultCertificateStatus = Add-AzKeyVaultCertificate `
+    -VaultName $SolutionKeyVaultName `
+    -Name $AzureADApplicationName `
+    -CertificatePolicy $Policy   
+While ($AddAzureKeyVaultCertificateStatus.Status -eq "inProgress") 
+{
+    #
+    # Wait for certificate generation
+    # OK
+    Start-Sleep -Seconds 10
+    $AddAzureKeyVaultCertificateStatus = Get-AzKeyVaultCertificateOperation -VaultName $SolutionKeyVaultName -Name $AzureADApplicationName     
+}
+If ($AddAzureKeyVaultCertificateStatus.Status -ne "Completed")
+{
+    #
+    # Error during certificate generation
+    # OK
+    Write-Error "[SPN-Generator] - Error while creating certificate in Keyvault $SolutionKeyVaultName : $($AddAzureKeyVaultCertificateStatus.Status)."
+    exit
+}
+Else 
+{
+    #
+    # Certificate sucessfully generated in KeyVault
+    # OK
+    Write-output  "[SPN-Generator] - Successfully created auto-signed certificate in KeyVault $SolutionKeyVaultName."
+}
+#
+# Export certificate from solution Key Vault
+# OK
+try {
+    $PfxCertPlainPasswordForRunAsAccount = (Get-RandomPassword -PasswordLength $PasswordLenght -PercentLowerCaseLetters $PercentLowerCaseLetters -PercentUpperCaseLetters $PercentUpperCaseLetters -PercentNumbers $PercentNumbers -PercentCharacters $PercentCharacters).PasswordValue
+    Write-Output "[SPN-Generator] - Exporting certificate from KeyVault $SolutionKeyVaultName."
+    $secretRetrieved = Get-AzKeyVaultSecret `
+        -VaultName $SolutionKeyVaultName `
+        -Name $AzureADApplicationName
+    $pfxBytes = [System.Convert]::FromBase64String($secretRetrieved.SecretValueText)
+    $certCollection = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
+    $certCollection.Import($pfxBytes, $null, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)   
+    $protectedCertificateBytes = $certCollection.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pkcs12,$PfxCertPlainPasswordForRunAsAccount )
+    [System.IO.File]::WriteAllBytes($PfxCertPathForRunAsAccount, $protectedCertificateBytes)
+    Write-Output "[SPN-Generator] - Certificate successfully exported from solution key vault $SolutionKeyVaultName."
+}
+catch  {
+    #
+    # Export certificate in PFX
+    # OK
+    Write-Error "[SPN-Generator] - One or more error while exporting certificates : $($_.Exception.Message)."
+    exit
+}
+#
+# Create Azure AD Application
+# OK
+#try {
+    Write-Output "[SPN-Generator] - Creating Azure AD Application $AzureADApplicationName."
+    #
+    # Create Azure AD Application
+    # OK
+    $NewAzureADApplication = New-AzureADApplication `
+        -DisplayName $AzureADApplicationName `
+        -HomePage ("http://" + $AzureADApplicationName) # -IdentifierUris $CustomKeyIdentifier
+    #
+    # Create Service princpal linked to Azure AD Application
+    # OK
+    $NewAzureADServicePrincipal = New-AzureADServicePrincipal -AppId $NewAzureADApplication.AppId 
+    $KeyVaultCertificate = Get-AzKeyVaultCertificate `
+        -VaultName $SolutionKeyVaultName `
+        -Name $AzureADApplicationName
+    #
+    # Générate Key Credential for Azure AD Application
+    # OK
+    $KeyVaultCertRawData = $KeyVaultCertificate.Certificate.RawData
+    $base64Value = [System.Convert]::ToBase64String($KeyVaultCertRawData) 
+    $thumbprint=$KeyVaultCertificate.Certificate.GetCertHash() 
+    $base64Thumbprint = [System.Convert]::ToBase64String($thumbprint) 
+    New-AzureADApplicationKeyCredential `
+        -ObjectId $NewAzureADApplication.ObjectId `
+        -CustomKeyIdentifier $base64Thumbprint `
+        -Type AsymmetricX509Cert `
+        -Usage Verify `
+        -Value $base64Value | Out-Null
+    #
+    # Generate a Secret for Azure AD application
+    # OK
+    $credential = New-AzureADApplicationPasswordCredential -ObjectId $NewAzureADApplication.ObjectId
+    [String]$ApplicationSecretName = "secret"
+    [String]$ApplicationAppIDName = "AppId"
+    [String]$ObjectIdName ="ObjectId" 
+    $secretvalue = ConvertTo-SecureString $($credential.Value) -AsPlainText -Force
+    Set-AzKeyVaultSecret -VaultName $SolutionKeyVaultName -Name $ApplicationSecretName -SecretValue $secretvalue | Out-Null
+    $secretvalue = ConvertTo-SecureString $($NewAzureADApplication.AppId) -AsPlainText -Force
+    Set-AzKeyVaultSecret -VaultName $SolutionKeyVaultName -Name $ApplicationAppIDName -SecretValue $secretvalue | Out-Null
+    $secretvalue = ConvertTo-SecureString $(  $NewAzureADApplication.ObjectID) -AsPlainText -Force
+    Set-AzKeyVaultSecret -VaultName $SolutionKeyVaultName -Name $ObjectIdName -SecretValue $secretvalue | Out-Null  
+    #
+    # Assign Owner to newly created Azure AD Application
+    #
+    $CurrentAzureADUser = (Get-AzureADCurrentSessionInfo).Account.id
+    $CurrentAzureADObject = Get-AzureADUser -All $true -Filter "UserPrincipalName eq '$CurrentAzureADUser'"
+  #  Add-AzureADApplicationOwner -ObjectId $NewAzureADApplication.ObjectId -RefObjectId $CurrentAzureADObject.objectid
+
+    $credential = $null
+    Write-output "[SPN-Generator] - Azure AD Application $AzureADApplicationName created successfully in Azure AD tenant with Service Principal ID $($AutomationServicePrincipalID.ApplicationId.guid)."
+    remove-item -Path $PfxCertPathForRunAsAccount -Force | Out-Null
+#}
+#catch {
+#    #
+#    # Error while generation Azure AD Application
+#    # OK
+#    Write-Error "[SPN-Generator] - Error while creating Azure AD Application $AzureADApplicationName : $($_.Exception.Message)."
+#    remove-item -Path $PfxCertPathForRunAsAccount -Force | Out-Null
+#    Remove-AzureADApplication -ObjectId $AzureADApplication.ObjectID -Force -ErrorAction SilentlyContinue
+#    Exit
+#}
+#
+# Perform owner role assignation at subscription level
+# OK
+$NewRole = $null
+$Retries = 0
+Write-Output "[SPN-Generator] - Assigning Service Principal Owner role at subscription $((Get-AzContext).Subscription.id) level."
+While ($NewRole -eq $null -and $Retries -le 6) 
+{
+    #
+    # Loop While role assignment not completed
+    # OK
+    Start-Sleep -Seconds 10 # Required because Azure AD Identity may not be visible from Azure just after created
+    New-AzRoleAssignment -RoleDefinitionName $AssignedRole -ApplicationId $NewAzureADServicePrincipal.AppId -scope ("/subscriptions/" + $((Get-AzContext).Subscription.id)) -ErrorAction SilentlyContinue | Out-Null
+    Write-Output "[SPN-Generator] - Checking role Assignment."
+    $NewRole = Get-AzRoleAssignment -ServicePrincipalName  $NewAzureADServicePrincipal.AppId -ErrorAction SilentlyContinue        
+    $Retries++;
+}
+If ($NewRole -ne $null -and $Retries -le 6) 
+{
+    #
+    # Role assignment sucessfully configured
+    # OK
+    Write-Output "[SPN-Generator] - Owner Role sucessfully assigned to Service Principal $($Application.ApplicationId) at $((Get-AzContext).Subscription.id) level."
+}
+else 
+{
+    #
+    # Error during role assignment.
+    # OK
+    Write-Error "[SPN-Generator] - Error while assigning Owner role at $((Get-AzContext).Subscription.id)) : $($_.Exception.Message)."
+    Remove-item -Path $PfxCertPathForRunAsAccount -Force | Out-Null
+    Remove-AzureADApplication -ObjectId $Application.ObjectId
+    exit
 }
