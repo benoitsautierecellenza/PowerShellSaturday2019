@@ -141,17 +141,28 @@ Write-Output "DEBUG"
                 Write-Output "subscriptionId: $SubId" 
                 If ($($WebhookBody.Data.essentials.MonitorCondition) -eq "Fired")
                 {
-                    # Process only new alerts, not closed or acknwoledged
-                    $Parameters = @{
-                        "ResourceName"=$ResourceName;
-                        "resourceGroupName"=$ResourceGroupName
-                    }                    
-                    $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
-                    -AutomationAccountName $AutomationAccountName  `
-                    -Name "Process-StorageAccount" `
-                    -Parameters $Parameters `
-                    -Wait
-                $Job
+                    Switch ($($WebhookBody.Data.AlertContext.operationName))
+                    {
+                        "Microsoft.Storage/storageAccounts/write"
+                        {
+                            # Process only new alerts, not closed or acknwoledged
+                            $Parameters = @{
+                            "ResourceName"=$ResourceName;
+                            "resourceGroupName"=$ResourceGroupName
+                        }                    
+                        $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
+                            -AutomationAccountName $AutomationAccountName  `
+                            -Name "Process-StorageAccount" `
+                            -Parameters $Parameters `
+                            -Wait
+                        $Job
+                        # placer ici le register
+                        }
+                        "Microsoft.Storage/storageAccounts/delete"
+                        {
+                            "TO INCLUDE"
+                        }                    
+                    } 
                 }
             }
             "microsoft.keyvault/vaults" {
