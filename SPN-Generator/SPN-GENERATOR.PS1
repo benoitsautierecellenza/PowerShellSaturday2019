@@ -1,11 +1,8 @@
-#. .\SPN-GENERATOR.PS1 -SolutionResourceGroupName "DemoSPN" -SolutionKeyVaultName "DemoSPN" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536"  -AutomationCertificateLifetimePolicy 365 -AzureADApplicationName testspn
+#. .\SPN-GENERATOR.PS1 -SolutionResourceGroupName "DemoSPN" -SolutionKeyVaultName "DemoSPN" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536"  -AutomationCertificateLifetimePolicy 12 -AzureADApplicationName testspn -AuthenticationMethod Both
 
 # TODO
-# -Durée de validité trop longue sur le certificat à corriger (donc sur la policy)
-# -Prise en charge application existante, on créé donc un secret/certificat supplémentaire
+# -Prise en charge application existante, on créé donc un secret/certificat supplémentaire (pas de suppression)
 # -Mise en place tag pour identifier les secrets liés entre eux
-# -Mise en place vérification membership Azure AD administrator
-
 #
 # Benoît SAUTIERE - Version 1.0 - Initial version
 #
@@ -28,7 +25,12 @@ Param(
 
     [Parameter(Mandatory=$False)]
     [ValidateRange(1,720)]
-    [Int]$AutomationCertificateLifetimePolicy = 365
+    [Int]$AutomationCertificateLifetimePolicy = 12,
+
+    [Parameter(Mandatory=$False)]
+    [Validateset("Key", "Certificate", "Both")]
+    [String]$AuthenticationMethod = "Both"
+
 )
 #
 # Import required modules
@@ -78,6 +80,11 @@ $PercentCharacters = 0.25
 $AssignedRole = "Owner"
 $PfxCertPathForRunAsAccount = "C:\TEMP\CERTIFICATE.PFX"
 $AzureADAPplicationSubjectName = "cn=$AzureADApplicationName"
+
+[String]$ApplicationSecretName = "secret"
+[String]$ApplicationAppIDName = "AppId"
+[String]$ObjectIdName ="ObjectId" 
+
 #
 # Check if already connected to an Azure Subscription
 # OK
@@ -137,6 +144,22 @@ Catch {
     Write-Error "[SPN-Generator] - Not connected to Azure AD. Please connect to Azure AD Tenant $((Get-AzContext).tenant.id) and relaunch the script."
     exit
 }
+#
+# Check if connected user is member of the Company Administrator role
+# OK
+$CurrentAzureADUser = (Get-AzureADCurrentSessionInfo).Account.id
+$CurrentAzureADObject = Get-AzureADUser -All $true -Filter "UserPrincipalName eq '$CurrentAzureADUser'"
+Write-Host "[SPN-Generator] - Check if user $((Get-AzureADCurrentSessionInfo).Account.ID) is member of the Company Administrator Azure AD Role."
+$AzureADRole = Get-AzureADDirectoryRole | Where-Object {$_.displayname -eq "Company Administrator"}
+$ListAzureADRolemembers = Get-AzureADDirectoryRoleMember -ObjectId $AzureADRole.ObjectId
+If (($ListAzureADRolemembers | Where-Object {$_.objectid -eq $CurrentAzureADObject.ObjectID}) -ne $Null)
+{
+    Write-Host "[SPN-Generator] - User $((Get-AzureADCurrentSessionInfo).Account.ID) is member of the Company Azure AD Role"
+}
+Else
+{
+    Write-Warning "[SPN-Generator] - User $((Get-AzureADCurrentSessionInfo).Account.ID) is not member of the Company Azure AD Role"
+}    
 #
 # Check if solution Resource Group exists
 # OK
@@ -210,10 +233,10 @@ else
         #
         # Azure AD Application already exists in Azure AD, will be deleted and reconfigured
         # OK
-        $Message = "[SPN-Generator] - Azure AD Application $AzureADApplicationName already exists in Azure AD. Will be deleted"
+        $Message = "[SPN-Generator] - Azure AD Application $AzureADApplicationName already exists in Azure AD. Will be deleted."
         Write-Warning $message
-        Get-AzureADApplication -ObjectId $testAzureAdApplication.ObjectId | Remove-AzureADApplication       
-            
+        Start-Sleep -Seconds 60 # Time out to avoid issue
+        Get-AzureADApplication -ObjectId $testAzureAdApplication.ObjectId | Remove-AzureADApplication                   
     }
     else {
         #
@@ -223,90 +246,93 @@ else
         Exit
     }
 }
-#
-# Check if certificate exists (if yes delete)
-# OK
-$testcertificate = Get-AzKeyVaultCertificate `
+If ($AuthenticationMethod -ne "Key")
+{
+    #
+    # Check if certificate exists (if yes delete)
+    # OK
+    $testcertificate = Get-AzKeyVaultCertificate `
     -VaultName $SolutionKeyVaultName `
     -Name $AzureADApplicationName `
     -ErrorAction SilentlyContinue
-If ($testcertificate.count -eq 0)
-{
+    If ($testcertificate.count -eq 0)
+    {
+        #
+        # Certificate with this name does not existe un KeyVault
+        # OK
+        Write-Output "[SPN-Generator] - Certificate named $AzureADApplicationName does not exists yet in solution Key Vault $SolutionKeyVaultName."     
+    }
+    else 
+    {
+        #
+        # Certificate with this name already exists in solution key vault, will be deleted
+        # OK 
+        Write-Output "[SPN-Generator] - Certificate named $AzureADApplicationName already exists in solution Key Vault $SolutionKeyVaultName. Delete certificate."
+        Remove-AzKeyVaultCertificate `
+            -VaultName $SolutionKeyVaultName `
+            -Name $AzureADApplicationName `
+            -Force
+    }
     #
-    # certificate with this name does not existe un KeyVault
+    # Generating new Self-signed certificate
     # OK
-    Write-Output "[SPN-Generator] - Certificate named $AzureADApplicationName does not exists yet in solution Key Vault $SolutionKeyVaultName."     
-}
-else 
-{
-    #
-    # Certificate with this name already exists in solution key vault, will be deleted
-    # OK 
-    Write-Output "[SPN-Generator] - Certificate named $AzureADApplicationName already exists in solution Key Vault $SolutionKeyVaultName. Delete certificate."
-    Remove-AzKeyVaultCertificate `
+    Write-output "[SPN-Generator] - Creating auto-signed certificate in KeyVault $SolutionKeyVaultName"
+    $Policy = New-AzKeyVaultCertificatePolicy `
+        -SecretContentType "application/x-pkcs12" `
+        -SubjectName $AzureADAPplicationSubjectName `
+        -IssuerName "Self" `
+        -ValidityInMonths $AutomationCertificateLifetimePolicy `
+        -ReuseKeyOnRenewal
+    $AddAzureKeyVaultCertificateStatus = Add-AzKeyVaultCertificate `
         -VaultName $SolutionKeyVaultName `
         -Name $AzureADApplicationName `
-        -Force
-}
-#
-# Generating new Self-signed certificate
-# OK
-Write-output "[SPN-Generator] - Creating auto-signed certificate in KeyVault $SolutionKeyVaultName"
-$Policy = New-AzKeyVaultCertificatePolicy `
-    -SecretContentType "application/x-pkcs12" `
-    -SubjectName $AzureADAPplicationSubjectName `
-    -IssuerName "Self" `
-    -ValidityInMonths $AutomationCertificateLifetimePolicy `
-    -ReuseKeyOnRenewal
-$AddAzureKeyVaultCertificateStatus = Add-AzKeyVaultCertificate `
-    -VaultName $SolutionKeyVaultName `
-    -Name $AzureADApplicationName `
-    -CertificatePolicy $Policy   
-While ($AddAzureKeyVaultCertificateStatus.Status -eq "inProgress") 
-{
+        -CertificatePolicy $Policy   
+    While ($AddAzureKeyVaultCertificateStatus.Status -eq "inProgress") 
+    {
+        #
+        # Wait for certificate generation
+        # OK
+        Start-Sleep -Seconds 10
+        $AddAzureKeyVaultCertificateStatus = Get-AzKeyVaultCertificateOperation -VaultName $SolutionKeyVaultName -Name $AzureADApplicationName     
+    }
+    If ($AddAzureKeyVaultCertificateStatus.Status -ne "Completed")
+    {
+        #
+        # Error during certificate generation
+        # OK
+        Write-Error "[SPN-Generator] - Error while creating certificate in Keyvault $SolutionKeyVaultName : $($AddAzureKeyVaultCertificateStatus.Status)."
+        exit
+    }
+    Else 
+    {
+        #
+        # Certificate sucessfully generated in KeyVault
+        # OK
+        Write-output  "[SPN-Generator] - Successfully created auto-signed certificate in KeyVault $SolutionKeyVaultName."
+    }
     #
-    # Wait for certificate generation
+    # Export certificate from solution Key Vault
     # OK
-    Start-Sleep -Seconds 10
-    $AddAzureKeyVaultCertificateStatus = Get-AzKeyVaultCertificateOperation -VaultName $SolutionKeyVaultName -Name $AzureADApplicationName     
-}
-If ($AddAzureKeyVaultCertificateStatus.Status -ne "Completed")
-{
-    #
-    # Error during certificate generation
-    # OK
-    Write-Error "[SPN-Generator] - Error while creating certificate in Keyvault $SolutionKeyVaultName : $($AddAzureKeyVaultCertificateStatus.Status)."
-    exit
-}
-Else 
-{
-    #
-    # Certificate sucessfully generated in KeyVault
-    # OK
-    Write-output  "[SPN-Generator] - Successfully created auto-signed certificate in KeyVault $SolutionKeyVaultName."
-}
-#
-# Export certificate from solution Key Vault
-# OK
-try {
-    $PfxCertPlainPasswordForRunAsAccount = (Get-RandomPassword -PasswordLength $PasswordLenght -PercentLowerCaseLetters $PercentLowerCaseLetters -PercentUpperCaseLetters $PercentUpperCaseLetters -PercentNumbers $PercentNumbers -PercentCharacters $PercentCharacters).PasswordValue
-    Write-Output "[SPN-Generator] - Exporting certificate from KeyVault $SolutionKeyVaultName."
-    $secretRetrieved = Get-AzKeyVaultSecret `
-        -VaultName $SolutionKeyVaultName `
-        -Name $AzureADApplicationName
-    $pfxBytes = [System.Convert]::FromBase64String($secretRetrieved.SecretValueText)
-    $certCollection = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
-    $certCollection.Import($pfxBytes, $null, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)   
-    $protectedCertificateBytes = $certCollection.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pkcs12,$PfxCertPlainPasswordForRunAsAccount )
-    [System.IO.File]::WriteAllBytes($PfxCertPathForRunAsAccount, $protectedCertificateBytes)
-    Write-Output "[SPN-Generator] - Certificate successfully exported from solution key vault $SolutionKeyVaultName."
-}
-catch  {
-    #
-    # Export certificate in PFX
-    # OK
-    Write-Error "[SPN-Generator] - One or more error while exporting certificates : $($_.Exception.Message)."
-    exit
+    try {
+        $PfxCertPlainPasswordForRunAsAccount = (Get-RandomPassword -PasswordLength $PasswordLenght -PercentLowerCaseLetters $PercentLowerCaseLetters -PercentUpperCaseLetters $PercentUpperCaseLetters -PercentNumbers $PercentNumbers -PercentCharacters $PercentCharacters).PasswordValue
+        Write-Output "[SPN-Generator] - Exporting certificate from KeyVault $SolutionKeyVaultName."
+        $secretRetrieved = Get-AzKeyVaultSecret `
+            -VaultName $SolutionKeyVaultName `
+            -Name $AzureADApplicationName
+        $pfxBytes = [System.Convert]::FromBase64String($secretRetrieved.SecretValueText)
+        $certCollection = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
+        $certCollection.Import($pfxBytes, $null, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)   
+        $protectedCertificateBytes = $certCollection.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pkcs12,$PfxCertPlainPasswordForRunAsAccount )
+        [System.IO.File]::WriteAllBytes($PfxCertPathForRunAsAccount, $protectedCertificateBytes)
+        Write-Output "[SPN-Generator] - Certificate successfully exported from solution key vault $SolutionKeyVaultName."
+    }
+    catch  {
+        #
+        # Export certificate in PFX
+        # OK
+        Write-Error "[SPN-Generator] - One or more error while exporting certificates : $($_.Exception.Message)."
+        exit
+    }
 }
 #
 # Create Azure AD Application
@@ -323,31 +349,38 @@ catch  {
     # Create Service princpal linked to Azure AD Application
     # OK
     $NewAzureADServicePrincipal = New-AzureADServicePrincipal -AppId $NewAzureADApplication.AppId 
-    $KeyVaultCertificate = Get-AzKeyVaultCertificate `
-        -VaultName $SolutionKeyVaultName `
-        -Name $AzureADApplicationName
-    #
-    # Générate Key Credential for Azure AD Application
-    # OK
-    $KeyVaultCertRawData = $KeyVaultCertificate.Certificate.RawData
-    $base64Value = [System.Convert]::ToBase64String($KeyVaultCertRawData) 
-    $thumbprint=$KeyVaultCertificate.Certificate.GetCertHash() 
-    $base64Thumbprint = [System.Convert]::ToBase64String($thumbprint) 
-    New-AzureADApplicationKeyCredential `
-        -ObjectId $NewAzureADApplication.ObjectId `
-        -CustomKeyIdentifier $base64Thumbprint `
-        -Type AsymmetricX509Cert `
-        -Usage Verify `
-        -Value $base64Value | Out-Null
+    If ($AuthenticationMethod -ne "Key")
+    {
+        $KeyVaultCertificate = Get-AzKeyVaultCertificate `
+            -VaultName $SolutionKeyVaultName `
+            -Name $AzureADApplicationName
+        #
+        # Générate Key Credential for Azure AD Application
+        # OK
+        $KeyVaultCertRawData = $KeyVaultCertificate.Certificate.RawData
+        $base64Value = [System.Convert]::ToBase64String($KeyVaultCertRawData) 
+        $thumbprint=$KeyVaultCertificate.Certificate.GetCertHash() 
+        $base64Thumbprint = [System.Convert]::ToBase64String($thumbprint) 
+        New-AzureADApplicationKeyCredential `
+            -ObjectId $NewAzureADApplication.ObjectId `
+            -CustomKeyIdentifier $base64Thumbprint `
+            -Type AsymmetricX509Cert `
+            -Usage Verify `
+            -Value $base64Value `
+            -startdate $KeyVaultCertificate.NotBefore `
+            -EndDate $KeyVaultCertificate.Expires| Out-Null
+    }
+    If ($AuthenticationMethod -ne "Certificate")
+    {
+        $credential = New-AzureADApplicationPasswordCredential -ObjectId $NewAzureADApplication.ObjectId
+        $secretvalue = ConvertTo-SecureString $($credential.Value) -AsPlainText -Force
+        Set-AzKeyVaultSecret -VaultName $SolutionKeyVaultName -Name $ApplicationSecretName -SecretValue $secretvalue | Out-Null
+        $credential = $Null
+        $secretvalue = $Null
+    }
     #
     # Generate a Secret for Azure AD application
     # OK
-    $credential = New-AzureADApplicationPasswordCredential -ObjectId $NewAzureADApplication.ObjectId
-    [String]$ApplicationSecretName = "secret"
-    [String]$ApplicationAppIDName = "AppId"
-    [String]$ObjectIdName ="ObjectId" 
-    $secretvalue = ConvertTo-SecureString $($credential.Value) -AsPlainText -Force
-    Set-AzKeyVaultSecret -VaultName $SolutionKeyVaultName -Name $ApplicationSecretName -SecretValue $secretvalue | Out-Null
     $secretvalue = ConvertTo-SecureString $($NewAzureADApplication.AppId) -AsPlainText -Force
     Set-AzKeyVaultSecret -VaultName $SolutionKeyVaultName -Name $ApplicationAppIDName -SecretValue $secretvalue | Out-Null
     $secretvalue = ConvertTo-SecureString $(  $NewAzureADApplication.ObjectID) -AsPlainText -Force
@@ -355,21 +388,26 @@ catch  {
     #
     # Assign Owner to newly created Azure AD Application
     #
-    $CurrentAzureADUser = (Get-AzureADCurrentSessionInfo).Account.id
-    $CurrentAzureADObject = Get-AzureADUser -All $true -Filter "UserPrincipalName eq '$CurrentAzureADUser'"
+  # TODO
   #  Add-AzureADApplicationOwner -ObjectId $NewAzureADApplication.ObjectId -RefObjectId $CurrentAzureADObject.objectid
 
     $credential = $null
-    Write-output "[SPN-Generator] - Azure AD Application $AzureADApplicationName created successfully in Azure AD tenant with Service Principal ID $($AutomationServicePrincipalID.ApplicationId.guid)."
-    remove-item -Path $PfxCertPathForRunAsAccount -Force | Out-Null
+    Write-output "[SPN-Generator] - Azure AD Application $AzureADApplicationName created successfully in Azure AD tenant with Service Principal ID $($NewAzureADApplication.AppId)."
+    If ($AuthenticationMethod -ne "Key")
+    {
+        remove-item -Path $PfxCertPathForRunAsAccount -Force | Out-Null
+    }
 #}
 #catch {
 #    #
 #    # Error while generation Azure AD Application
 #    # OK
 #    Write-Error "[SPN-Generator] - Error while creating Azure AD Application $AzureADApplicationName : $($_.Exception.Message)."
-#    remove-item -Path $PfxCertPathForRunAsAccount -Force | Out-Null
-#    Remove-AzureADApplication -ObjectId $AzureADApplication.ObjectID -Force -ErrorAction SilentlyContinue
+#        If ($AuthenticationMethod -ne "Key")
+#    {
+#        remove-item -Path $PfxCertPathForRunAsAccount -Force | Out-Null
+#    }
+    #    Remove-AzureADApplication -ObjectId $AzureADApplication.ObjectID -Force -ErrorAction SilentlyContinue
 #    Exit
 #}
 #
@@ -402,7 +440,10 @@ else
     # Error during role assignment.
     # OK
     Write-Error "[SPN-Generator] - Error while assigning Owner role at $((Get-AzContext).Subscription.id)) : $($_.Exception.Message)."
-    Remove-item -Path $PfxCertPathForRunAsAccount -Force | Out-Null
+    If ($AuthenticationMethod -ne "Key")
+    {
+        remove-item -Path $PfxCertPathForRunAsAccount -Force | Out-Null
+    }
     Remove-AzureADApplication -ObjectId $Application.ObjectId
     exit
 }
