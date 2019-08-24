@@ -301,5 +301,3 @@ try {
 catch {
     Write-Output "[ERROR] - $($_.Exception)"
 }
-
-
