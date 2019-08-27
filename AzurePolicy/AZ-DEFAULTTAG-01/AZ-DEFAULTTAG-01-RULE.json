@@ -1,0 +1,25 @@
+{
+   "if": 
+   {
+      "allOf": [
+         {
+            "field": "[concat('tags[', parameters('UpdatePolicyTagName'), ']')]",
+            "exists": "false"
+         },
+         {
+            "field": "type",
+            "equals": "Microsoft.Compute/virtualMachines"
+         }
+      ]            
+   },
+   "then": 
+   {
+      "effect": "append",
+      "details": [
+      {
+         "field": "[concat('tags[', parameters('UpdatePolicyTagName'), ']')]",
+         "value": "[parameters('DefaultTagValue')]"
+      }
+      ]
+   }
+}

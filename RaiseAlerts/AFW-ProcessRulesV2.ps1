@@ -26,6 +26,7 @@ Param(
     [Parameter (Mandatory=$False)]
     [Array]$SourceAddress 
 )
+[String]$AzureRegion = "NorthEurope"
 #
 # Constants
 #
@@ -62,6 +63,58 @@ If ($DebugMode -eq $false)
     }
     Write-output "Successfully authenticated to Azure."
 }
+[String]$QueueStorageAccountName = "demoazurequeue"
+[String]$QueueResourceGroupName = "DemoAzureFirewall"
+[String]$QueueToProcess = "storagefirewalleun"
+[Int]$invisibleTimeout = 60
+#
+# Create context to the Azure Storage Account
+# OK
+$StorageAccountKeys = Get-AzStorageAccountKey -ResourceGroupName $QueueResourceGroupName -Name $QueueStorageAccountName
+$StorageContext = New-AzStorageContext -StorageAccountName $QueueStorageAccountName -StorageAccountKey $StorageAccountKeys[0].Value
+#
+# Test Azure Queue
+# OK
+$AzureQueue = Get-AzStorageQueue -Context $StorageContext -Name $QueueToProcess -ErrorAction SilentlyContinue
+IF([string]::IsNullOrEmpty($AzureQueue)) {
+    Write-Output "Azure Queue $QueueToProcess does not exists yet. Create it. No message to dequeue at this stage."
+    $AzureQueue = New-AzStorageQueue -Context $StorageContext -Name $QueueToProcess
+    exit
+}
+else {
+    Write-Output "Azure Queue $QueueToProcess already exists. Processing Queue messages"
+}$ProcessedMessages = @()
+If (($AzureQueue.ApproximateMessageCount) -GT 0)
+{
+    Write-Output "Found $($AzureQueue.ApproximateMessageCount) messages to dequeue from queue $QueueToProcess."
+    $DequeueMessage = $AzureQueue.CloudQueue.GetMessageAsync($invisibleTimeout,$null,$null)     
+    While($DequeueMessage.Result -ne $Null)
+    {
+        #
+        # Process Message
+        #
+        Write-Host "Processing Message $($DequeueMessage.Result.ID)"
+
+        $ProcessedMessages +=  $DequeueMessage.Result.ID
+        exit
+ #       $DequeueMessage.Result
+        [Array]$test = @(        $DequeueMessage.Result.AsString)
+# Problème de format pour dépiler les messages
+        $DequeueMessage = $AzureQueue.CloudQueue.GetMessageAsync($invisibleTimeout,$null,$null)     
+
+        # $queue.CloudQueue.DeleteMessageAsync($queueMessage.Result.Id,$queueMessage.Result.popReceipt)pour la suppression de la queue
+    }
+}
+else {
+    Write-Output "No message to dequeue from queue $QueueToProcess."
+}
+
+
+"Messaged Dequed"
+exit
+#
+# Builder l'Array selon les contenu des messages de type create
+# 
 switch($ServiceType)
 {
     "Storage" {
@@ -116,6 +169,9 @@ switch($ServiceType)
         }
     }
 }
+"Rules processed"
+exit
+
 Write-Output "[AzureFirewall] - Processing operation $OperationName for resource $ResourceName as $ServiceType resource type."
 #
 # Build Rule for the Storage Accounts
@@ -201,15 +257,14 @@ foreach($collection in $rules.GetEnumerator()) {
     #
     # Build new Azure Firewall configuration
     # OK
-    $AzureFirewallList = Get-AzFirewall | select-Object resourcegroupname, name  
+    $AzureFirewallList = Get-AzFirewall | Where-Object {$_.Location -eq $AzureRegion} | select-Object resourcegroupname, name  
     ForEach ($AzureFirewall in $AzureFirewallList) {
         #
-        # Process Each Azure Firewall instance found 
+        # Process Each Azure Firewall instance found (consider single instance per Azure Region in a same Resource Group)
         # OK
         $ExistingApplicationRuleCollectionRules = @{}
         Write-Output "[AzureFirewall] - Processing Azure Firewall $($AzureFirewall.name)"
         $AzureFirewallConfig = Get-AzFirewall -ResourceGroupName $($AzureFirewall.resourcegroupname) -Name $($AzureFirewall.name)
-
         $CheckForLock = Get-AzResourceLock -ResourceGroupName $AzureFirewall.resourcegroupname -ResourceName $AzureFirewall.name -ResourceType "Microsoft.Network/azureFirewalls"
         If ($CheckForLock.Count -GT 0)
         {

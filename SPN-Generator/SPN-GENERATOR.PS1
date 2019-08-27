@@ -1,8 +1,8 @@
-#. .\SPN-GENERATOR.PS1 -SolutionResourceGroupName "DemoSPN" -SolutionKeyVaultName "DemoSPN" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536"  -AutomationCertificateLifetimePolicy 12 -AzureADApplicationName testspn -AuthenticationMethod Both
+#. .\SPN-GENERATOR.PS1 -SolutionResourceGroupName "DemoSPN" -SolutionKeyVaultName "DemoSPN2" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536"  -AutomationCertificateLifetimePolicy 12 -AzureADApplicationName testspn2 -AuthenticationMethod Both -mode Create
 
 # TODO
-# -Prise en charge application existante, on créé donc un secret/certificat supplémentaire (pas de suppression)
-# -Mise en place tag pour identifier les secrets liés entre eux
+# -Ajouter une option pour assigner le SPN à un Rôle Azure AD si précisé
+# -Ajouter une option pour assigner la souscription en optionnel
 #
 # Benoît SAUTIERE - Version 1.0 - Initial version
 #
@@ -27,10 +27,14 @@ Param(
     [ValidateRange(1,720)]
     [Int]$AutomationCertificateLifetimePolicy = 12,
 
-    [Parameter(Mandatory=$False)]
+    [Parameter(Mandatory=$True)]
     [Validateset("Key", "Certificate", "Both")]
-    [String]$AuthenticationMethod = "Both"
+    [String]$AuthenticationMethod = "Both",
 
+    [Parameter(Mandatory=$True)]
+    [Validateset("Create", "Update")]
+    [String]$Mode = "Create"
+    
 )
 #
 # Import required modules
@@ -60,7 +64,7 @@ if (!$module)
     Write-Host "[SPN-Generator] - Module randompasswordgenerator now installed"
 }
 else {
-    Write-Output "[SPN-Generator] - module randompasswordgenerator is already installed."
+    Write-Output "[SPN-Generator] - Module randompasswordgenerator is already installed."
 }
 try {
     import-module randompasswordgenerator 
@@ -84,7 +88,6 @@ $AzureADAPplicationSubjectName = "cn=$AzureADApplicationName"
 [String]$ApplicationSecretName = "secret"
 [String]$ApplicationAppIDName = "AppId"
 [String]$ObjectIdName ="ObjectId" 
-
 #
 # Check if already connected to an Azure Subscription
 # OK
@@ -147,19 +150,19 @@ Catch {
 #
 # Check if connected user is member of the Company Administrator role
 # OK
-$CurrentAzureADUser = (Get-AzureADCurrentSessionInfo).Account.id
-$CurrentAzureADObject = Get-AzureADUser -All $true -Filter "UserPrincipalName eq '$CurrentAzureADUser'"
-Write-Host "[SPN-Generator] - Check if user $((Get-AzureADCurrentSessionInfo).Account.ID) is member of the Company Administrator Azure AD Role."
-$AzureADRole = Get-AzureADDirectoryRole | Where-Object {$_.displayname -eq "Company Administrator"}
-$ListAzureADRolemembers = Get-AzureADDirectoryRoleMember -ObjectId $AzureADRole.ObjectId
-If (($ListAzureADRolemembers | Where-Object {$_.objectid -eq $CurrentAzureADObject.ObjectID}) -ne $Null)
-{
-    Write-Host "[SPN-Generator] - User $((Get-AzureADCurrentSessionInfo).Account.ID) is member of the Company Azure AD Role"
-}
-Else
-{
-    Write-Warning "[SPN-Generator] - User $((Get-AzureADCurrentSessionInfo).Account.ID) is not member of the Company Azure AD Role"
-}    
+#$CurrentAzureADUser = (Get-AzureADCurrentSessionInfo).Account.id
+#$CurrentAzureADObject = Get-AzureADUser -All $true -Filter "UserPrincipalName eq '$CurrentAzureADUser'"
+#Write-Host "[SPN-Generator] - Check if user $((Get-AzureADCurrentSessionInfo).Account.ID) is member of the Company Administrator Azure AD Role."
+#$AzureADRole = Get-AzureADDirectoryRole | Where-Object {$_.displayname -eq "Company Administrator"}
+#$ListAzureADRolemembers = Get-AzureADDirectoryRoleMember -ObjectId $AzureADRole.ObjectId
+#If (($ListAzureADRolemembers | Where-Object {$_.objectid -eq $CurrentAzureADObject.ObjectID}) -ne $Null)
+#{
+#    Write-Host "[SPN-Generator] - User $((Get-AzureADCurrentSessionInfo).Account.ID) is member of the Company Azure AD Role"
+#}
+#Else
+#{
+#    Write-Warning "[SPN-Generator] - User $((Get-AzureADCurrentSessionInfo).Account.ID) is not member of the Company Azure AD Role"
+#}    
 #
 # Check if solution Resource Group exists
 # OK
@@ -217,33 +220,61 @@ catch {
 #
 # Check Azure AD Application
 # OK
-$testAzureAdApplication = Get-AzureADApplication -All $true | where-Object {$_.displayname -like $AzureADApplicationName}
-If ([string]::IsNullOrEmpty($testAzureAdApplication) -eq $True)
+# section à traiter uniquement si mode Create et pas update
+Switch($Mode)
 {
-    #
-    # Azure AD application not yet exists, check if another application is not using the same CustomKeyIdentifier
-    # OK
-    $message = "[SPN-Generator] - Azure AD Application $AzureADApplicationName does not already exists in your Azure AD tenant."
-    Write-Host $message
-}
-else 
-{
-    If ($testAzureAdApplication.count -eq 1)
-    {
+    "Create" {
         #
-        # Azure AD Application already exists in Azure AD, will be deleted and reconfigured
-        # OK
-        $Message = "[SPN-Generator] - Azure AD Application $AzureADApplicationName already exists in Azure AD. Will be deleted."
-        Write-Warning $message
-        Start-Sleep -Seconds 60 # Time out to avoid issue
-        Get-AzureADApplication -ObjectId $testAzureAdApplication.ObjectId | Remove-AzureADApplication                   
+        # Create mode, will delete if Azure AD Application already exists
+        #
+        $testAzureAdApplication = Get-AzureADApplication -All $true | where-Object {$_.displayname -like $AzureADApplicationName}
+        If ([string]::IsNullOrEmpty($testAzureAdApplication) -eq $True)
+        {
+            #
+            # Azure AD application not yet exists, check if another application is not using the same CustomKeyIdentifier
+            # OK
+            $message = "[SPN-Generator] - Azure AD Application $AzureADApplicationName does not already exists in your Azure AD tenant."
+            Write-Host $message
+        }
+        else 
+        {
+            If ($testAzureAdApplication.count -eq 1)
+            {
+                #
+                # Azure AD Application already exists in Azure AD, will be deleted and reconfigured
+                # OK
+                $Message = "[SPN-Generator] - Azure AD Application $AzureADApplicationName already exists in Azure AD. Will be deleted."
+                Write-Warning $message
+                Start-Sleep -Seconds 60 # Time out to avoid issue
+                Get-AzureADApplication -ObjectId $testAzureAdApplication.ObjectId | Remove-AzureADApplication                   
+            }
+            else {
+                #
+                # Corner case, multiple Azure AD application withe the same displayname
+                # OK
+                Write-Error "[SPN-Generator] - Too many application with  the same name. Unable to configure application."
+                Exit
+            }
+        }
     }
-    else {
+    "Update" {
         #
-        # Corner case, multiple Azure AD application withe the same displayname
-        # OK
-        Write-Error "[SPN-Generator] - Too many application with  the same name. Unable to configure application."
-        Exit
+        # Update mode, will only check if Azure AD APplication exists
+        #
+        $testAzureAdApplication = Get-AzureADApplication -All $true | where-Object {$_.displayname -like $AzureADApplicationName}
+        If ([string]::IsNullOrEmpty($testAzureAdApplication) -eq $True)
+        {
+            #
+            # Azure AD application not yet exists, check if another application is not using the same CustomKeyIdentifier
+            # OK
+            $message = "[SPN-Generator] - Azure AD Application $AzureADApplicationName does not already exists in your Azure AD tenant."
+            Write-Error $message
+            exit
+        }
+        else {
+            $message = "[SPN-Generator] - Azure AD Application $AzureADApplicationName exists in your Azure AD tenant."
+            Write-Output $Message
+        }
     }
 }
 If ($AuthenticationMethod -ne "Key")
@@ -338,24 +369,34 @@ If ($AuthenticationMethod -ne "Key")
 # Create Azure AD Application
 # OK
 #try {
-    Write-Output "[SPN-Generator] - Creating Azure AD Application $AzureADApplicationName."
+
     #
     # Create Azure AD Application
     # OK
-    $NewAzureADApplication = New-AzureADApplication `
-        -DisplayName $AzureADApplicationName `
-        -HomePage ("http://" + $AzureADApplicationName) # -IdentifierUris $CustomKeyIdentifier
-    #
-    # Create Service princpal linked to Azure AD Application
-    # OK
-    $NewAzureADServicePrincipal = New-AzureADServicePrincipal -AppId $NewAzureADApplication.AppId 
+    Switch($mode)
+    {
+        "Create" {
+            Write-Output "[SPN-Generator] - Creating Azure AD Application $AzureADApplicationName."
+            $NewAzureADApplication = New-AzureADApplication `
+                -DisplayName $AzureADApplicationName `
+                -HomePage ("http://" + $AzureADApplicationName) # -IdentifierUris $CustomKeyIdentifier
+            #
+            # Create Service princpal linked to Azure AD Application
+            # OK
+            $NewAzureADServicePrincipal = New-AzureADServicePrincipal -AppId $NewAzureADApplication.AppId 
+        }
+        "Update" {
+            Write-Output "[SPN-Generator] - Updating Azure AD Application $AzureADApplicationName."
+            $NewAzureADApplication = Get-AzureADApplication -All $true | where-Object {$_.displayname -like $AzureADApplicationName}
+        }
+    }       
     If ($AuthenticationMethod -ne "Key")
     {
         $KeyVaultCertificate = Get-AzKeyVaultCertificate `
             -VaultName $SolutionKeyVaultName `
             -Name $AzureADApplicationName
         #
-        # Générate Key Credential for Azure AD Application
+        # Generate Key Credential for Azure AD Application
         # OK
         $KeyVaultCertRawData = $KeyVaultCertificate.Certificate.RawData
         $base64Value = [System.Convert]::ToBase64String($KeyVaultCertRawData) 
@@ -372,7 +413,11 @@ If ($AuthenticationMethod -ne "Key")
     }
     If ($AuthenticationMethod -ne "Certificate")
     {
-        $credential = New-AzureADApplicationPasswordCredential -ObjectId $NewAzureADApplication.ObjectId
+        [DateTime]$StartDate = Get-Date
+        [DateTime]$EndDate = $StartDate.AddMonths($AutomationCertificateLifetimePolicy)
+        $credential = New-AzureADApplicationPasswordCredential -ObjectId $NewAzureADApplication.ObjectId `
+            -startdate $StartDate `
+            -EndDate $EndDate
         $secretvalue = ConvertTo-SecureString $($credential.Value) -AsPlainText -Force
         Set-AzKeyVaultSecret -VaultName $SolutionKeyVaultName -Name $ApplicationSecretName -SecretValue $secretvalue | Out-Null
         $credential = $Null
