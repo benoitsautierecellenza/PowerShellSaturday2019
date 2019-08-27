@@ -13,8 +13,10 @@ If ([string]::IsNullOrEmpty($TestPolicy) -eq $False) {Get-AzPolicyAssignment -Sc
 #
 Write-Output "Import AZ-DEFAULTTAG-01-RULE Policy"
 [String]$ManagementGroupName = "MGMT01"
-[String]$PolicyDefinitionFileURI = "https://raw.githubusercontent.com/Benoitsautierecellenza/DemoPolicy/master/Policies/AZ-DEFAULTTAG/AZ-DEFAULTTAG-01-RULE.json"
-[String]$PolicyParameterFileURI = "https://raw.githubusercontent.com/Benoitsautierecellenza/DemoPolicy/master/Policies/AZ-DEFAULTTAG/AZ-DEFAULTTAG-01-PARAMETERS.json"
+[String]$PolicyDefinitionFileURI ="https://raw.githubusercontent.com/Benoitsautierecellenza/PowerShellSaturday2019/master/AzurePolicy/AZ-DEFAULTTAG-01/AZ-DEFAULTTAG-01-RULE.json"
+#[String]$PolicyDefinitionFileURI = "https://raw.githubusercontent.com/Benoitsautierecellenza/DemoPolicy/master/Policies/AZ-DEFAULTTAG/AZ-DEFAULTTAG-01-RULE.json"
+[String]$PolicyParameterFileURI = "https://raw.githubusercontent.com/Benoitsautierecellenza/PowerShellSaturday2019/master/AzurePolicy/AZ-DEFAULTTAG-01/AZ-DEFAULTTAG-01-PARAMETERS.json"
+#[String]$PolicyParameterFileURI = "https://raw.githubusercontent.com/Benoitsautierecellenza/DemoPolicy/master/Policies/AZ-DEFAULTTAG/AZ-DEFAULTTAG-01-PARAMETERS.json"
 [String]$PolicyName = "DefautltValue4UpdatePolicy"
 [String]$PolicyDisplayName = $PolicyName + "_" + $Build
 New-AzPolicyDefinition -Name $PolicyName `

@@ -1,0 +1,16 @@
+{
+    "UpdatePolicyTagAllowedValues": {
+      "type": "Array",
+      "metadata": {
+        "displayName": "Allow Values for a tag",
+        "description": "Allowed values for a specific tag"
+      }
+    },
+    "UpdatePolicyTagName": {
+      "type": "String",
+      "metadata": {
+        "displayName": "Tag name to enforce values",
+        "description": "Tag name"
+    }
+  }
+}
