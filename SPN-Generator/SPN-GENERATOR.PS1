@@ -1,4 +1,4 @@
-#. .\SPN-GENERATOR.PS1 -SolutionResourceGroupName "DemoSPN" -SolutionKeyVaultName "DemoSPN2" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536"  -AutomationCertificateLifetimePolicy 12 -AzureADApplicationName testspn2 -AuthenticationMethod Both -mode Create
+#. .\SPN-GENERATOR.PS1 -SolutionResourceGroupName "DemoSPN" -SolutionKeyVaultName "DemoSPN2" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536"  -AutomationCertificateLifetimePolicy 12 -AzureADApplicationName testspn3 -AuthenticationMethod Key -mode Create
 
 # TODO
 # -Ajouter une option pour assigner le SPN à un Rôle Azure AD si précisé
@@ -283,9 +283,9 @@ If ($AuthenticationMethod -ne "Key")
     # Check if certificate exists (if yes delete)
     # OK
     $testcertificate = Get-AzKeyVaultCertificate `
-    -VaultName $SolutionKeyVaultName `
-    -Name $AzureADApplicationName `
-    -ErrorAction SilentlyContinue
+        -VaultName $SolutionKeyVaultName `
+        -Name $AzureADApplicationName `
+        -ErrorAction SilentlyContinue
     If ($testcertificate.count -eq 0)
     {
         #
@@ -379,7 +379,9 @@ If ($AuthenticationMethod -ne "Key")
             Write-Output "[SPN-Generator] - Creating Azure AD Application $AzureADApplicationName."
             $NewAzureADApplication = New-AzureADApplication `
                 -DisplayName $AzureADApplicationName `
-                -HomePage ("http://" + $AzureADApplicationName) # -IdentifierUris $CustomKeyIdentifier
+                -HomePage ("http://" + $AzureADApplicationName) `
+                -IdentifierUris $CustomKeyIdentifier `
+                -ReplyUrls ("http://" + $AzureADApplicationName)
             #
             # Create Service princpal linked to Azure AD Application
             # OK
