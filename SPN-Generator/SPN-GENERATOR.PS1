@@ -1,4 +1,4 @@
-#. .\SPN-GENERATOR.PS1 -SolutionResourceGroupName "DemoSPN" -SolutionKeyVaultName "DemoSPN2" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536"  -AutomationCertificateLifetimePolicy 12 -AzureADApplicationName testspn3 -AuthenticationMethod Key -mode Create
+#. .\SPN-GENERATOR.PS1 -SolutionResourceGroupName "DemoSPN" -SolutionKeyVaultName "DemoSPN2" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536"  -AutomationCertificateLifetimePolicy 12 -AzureADApplicationName testspn4 -AuthenticationMethod Key -mode Create
 
 # TODO
 # -Ajouter une option pour assigner le SPN à un Rôle Azure AD si précisé

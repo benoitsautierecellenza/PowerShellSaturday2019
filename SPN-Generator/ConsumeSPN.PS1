@@ -129,6 +129,10 @@ $TenantID = "fa6e8394-fa69-4f72-b838-00319a91d080"
 $PWord = ConvertTo-SecureString -String $Secret -AsPlainText -Force
 $Credential = New-Object -TypeName "System.Management.Automation.PSCredential" -ArgumentList $AppId, $PWord
 Connect-AzAccount -ServicePrincipal -Credential $Credential -Tenant $TenantID
+$Context = Get-AzContext
+$cacheItems = $context.TokenCache.ReadItems()
+$cacheItems.AccessToken
+
 
 exit
 #
