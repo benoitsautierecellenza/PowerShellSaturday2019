@@ -1,0 +1,58 @@
+{
+	"mode": "All",
+	"policyRule": {
+  		"if": {
+    		"allOf": [
+      			{
+        			"field": "type",
+        			"equals": "Microsoft.KeyVault/vaults"
+      			},
+      			{
+        			"anyOf": [
+          				{
+            				"field": "Microsoft.KeyVault/vaults/networkAcls.virtualNetworkRules[*].id",
+            				"exists": "false"
+          				},
+          				{
+            				"field": "Microsoft.KeyVault/vaults/networkAcls.virtualNetworkRules[*].id",
+            				"notLike": "*"
+						}
+        			]
+      			}
+    		]
+  		},
+  		"then": {
+    		"effect": "append",
+    		"details": [
+      			{
+        			"field": "Microsoft.KeyVault/vaults/networkAcls.virtualNetworkRules[*]",
+        			"value": {
+		  				"id": "/subscriptions/5be15500-7328-4beb-871a-1498cd4b4536/resourceGroups/DemoAzureFirewall/providers/Microsoft.Network/virtualNetworks/VNET_NorthEurope/subnets/AzureFirewallSubnet"
+        			}
+      			},
+      			{
+        			"field": "Microsoft.KeyVault/vaults/networkAcls.virtualNetworkRules[*]",
+        			"value": {
+		  				"id": "/subscriptions/5be15500-7328-4beb-871a-1498cd4b4536/resourceGroups/DemoAzureFirewall/providers/Microsoft.Network/virtualNetworks/VNET_WestEurope/subnets/AzureFirewallSubnet"
+        			}
+      			},
+      			{
+        			"field": "Microsoft.KeyVault/vaults/networkAcls.ipRules[*]",
+        			"value": {
+          				"value": "82.124.245.95"
+        			}
+      			},
+      			{
+        			"field": "Microsoft.KeyVault/vaults/networkAcls.ipRules[*]",
+        			"value": {
+          				"value": "82.124.245.96"
+        			}
+				},
+				{
+					"field": "Microsoft.KeyVault/vaults/networkAcls.defaultAction",
+					"value" : "Deny"
+				}
+    		]  
+		}
+	}
+}
