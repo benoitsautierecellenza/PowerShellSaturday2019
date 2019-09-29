@@ -1,7 +1,4 @@
 
-
-#. .\1-Configure-AutomationAccountSecurity.PS1 -SolutionResourceGroupName "LabAutomation" -SolutionKeyVaultName "LabAutomation" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536" -SolutionAutomationAccountName "LabAutomation"  -AutomationAzureADApplicationName LABAUTOMATION 
-
 #
 # Benoît SAUTIERE - Version 1.0 - Initial version
 #
@@ -25,7 +22,6 @@ Param(
     [Parameter(Mandatory=$True)]
     [ValidateNotnullorEmpty()]
     [String]$SolutionAutomationAccountName
-
 )
 #
 # Constants
@@ -169,22 +165,19 @@ else
         Exit
     }
 }
-################### ecrire test certificat  et secret ###########
 #
 # Check if Certificate exists in KeyVaut
-#
-$TestCertificateExists = Get-AzKeyVaultCertificate -VaultName $SolutionKeyVaultName
-If([string]::IsNullOrEmpty($TestCertificateExists)) {
-    Write-Error "[Configure-AutomationSecurity] - No certificate found in Keyvault $SolutionKeyVaultName."
+# OK
+$TestCertificateExists = Get-AzKeyVaultCertificate -VaultName $SolutionKeyVaultName -Name $AutomationAzureADApplicationName
+If ($TestCertificateExists.count -eq 0) {
+    Write-Error "[Configure-AutomationSecurity] - No certificate named $AutomationAzureADApplicationName found in Keyvault $SolutionKeyVaultName."
     exit
 }
 else {
+    Write-Output "[Configure-AutomationSecurity] - Certificate named $AutomationAzureADApplicationName found in Keyvault $SolutionKeyVaultName."
 
-    $AutomationAzureADApplicationName
+
 }
-#
-# Fin réécriture tests keyvault
-# ################################################
 #
 # Remove existing assets in Azure Automation account related to authentication
 #
@@ -197,7 +190,7 @@ If([string]::IsNullOrEmpty($testCertificateAsset) -eq $False)
 }
 #
 # Export certificate from KeyVault (PFX)
-#
+# OK
 try {
     $PfxCertPlainPasswordForRunAsAccount = (Get-RandomPassword -PasswordLength $PasswordLenght -PercentLowerCaseLetters $PercentLowerCaseLetters -PercentUpperCaseLetters $PercentUpperCaseLetters -PercentNumbers $PercentNumbers -PercentCharacters $PercentCharacters).PasswordValue
     Write-Output "[Configure-AutomationSecurity] - Exporting certificate from KeyVault $SolutionKeyVaultName."
@@ -209,6 +202,7 @@ try {
     $certCollection.Import($pfxBytes, $null, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)   
     $protectedCertificateBytes = $certCollection.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pkcs12,$PfxCertPlainPasswordForRunAsAccount )
     [System.IO.File]::WriteAllBytes($PfxCertPathForRunAsAccount, $protectedCertificateBytes) 
+    Write-Output "[Configure-AutomationSecurity] - Certificate sucessfully exported from KeyVault $SolutionKeyVaultName."
 }
 catch  {
     #
@@ -220,7 +214,7 @@ catch  {
 }
 #
 # Import certificate Into Azure Automation Account
-#
+# OK
 $CertPassword = ConvertTo-SecureString -String $PfxCertPlainPasswordForRunAsAccount -AsPlainText -Force  
 New-AzAutomationCertificate  `
     -ResourceGroupName $SolutionResourceGroupname `
@@ -229,7 +223,7 @@ New-AzAutomationCertificate  `
     -Name $certifcateAssetName `
     -Password $CertPassword | Out-Null
 #
-# Configure Connection asset
+# Delete existing connection Asset
 #
 $testconnectionasset = Get-AzAutomationConnection -ResourceGroupName $SolutionResourceGroupname -automationAccountName $SolutionAutomationAccountName -Name $connectionAssetName -ErrorAction SilentlyContinue
 If([string]::IsNullOrEmpty($testconnectionasset) -eq $False)        
@@ -241,22 +235,11 @@ If([string]::IsNullOrEmpty($testconnectionasset) -eq $False)
         -Force
     Write-Output "[Configure-AutomationSecurity] - Existing connection asset named $connectionAssetName successfully removed from Azure Automation Account $SolutionAutomationAccountName."
 }
-
 $ApplicationId = $testAzureAdApplication.AppId
 $KeyVaultCertificate = Get-AzKeyVaultCertificate `
     -VaultName $SolutionKeyVaultName `
     -Name $AutomationAzureADApplicationName
-#
-# Générate Key Credential for Azure AD Application
-# OK
-#$KeyVaultCertRawData = $KeyVaultCertificate.Certificate.RawData
-#$base64Value = [System.Convert]::ToBase64String($KeyVaultCertRawData) 
-#$thumbprint=$KeyVaultCertificate.Certificate.GetCertHash() 
-#$base64Thumbprint = [System.Convert]::ToBase64String($thumbprint) 
 
-#
-# Pas le bon Thumbprint passé : devrait être 1CE2F328FE9074F74852492D1EC0DEC53A69994E
-#
 $ConnectionFieldValues = @{
     "ApplicationId" = $ApplicationID; 
     "TenantId" = $((Get-AzContext).tenant.ID); 
@@ -264,93 +247,15 @@ $ConnectionFieldValues = @{
     "SubscriptionId" = $SolutionSubscriptionID
 } 
 New-AzAutomationConnection -ResourceGroupName $SolutionResourceGroupname -automationAccountName $SolutionAutomationAccountName -Name $connectionAssetName -ConnectionTypeName $connectionTypeName -ConnectionFieldValues $connectionFieldValues | Out-Null
-
-
-$CertPassword = $Null
 Get-ChildItem $PfxCertPathForRunAsAccount | Remove-Item | Out-Null
+$CertPassword = $Null
+Write-Output "[Configure-AutomationSecurity] - Azure Automation account $SolutionAutomationAccountName successfully initialized."  
 
 
-
-
-
-
-"DONE"
-exit
-#
-# Second partie du script
-#
-#
-# Initializing Azure Automation Certificate and connection assets
-# OK
-try {    
-    Write-Output "[Configure-AutomationSecurity] - Initializing Automation Account $SolutionAutomationAccountName in $SolutionResourceGroupname resource Group."
-    #New-AzureRmAutomationAccount -ResourceGroupName $SolutionResourceGroupname -Name $AutomationAccountName -Location $AutomationAccountRegion -Tags $SolutionTags -Plan $AutomationAccountPlan
-    $CertPassword = ConvertTo-SecureString -String $PfxCertPlainPasswordForRunAsAccount -AsPlainText -Force
-    #
-    # Delete certificate Asset in Automation account if already exists
-    # OK
-    $testCertificateAsset = Get-AzureRmAutomationCertificate -ResourceGroupName $SolutionResourceGroupname -automationAccountName $SolutionAutomationAccountName   -Name $certifcateAssetName -ErrorAction SilentlyContinue
-    If([string]::IsNullOrEmpty($testCertificateAsset) -eq $False)        
-    {
-        Write-Output "[Configure-AutomationSecurity] - Removing existing certificate asset $certifcateAssetName from Azure Automation Account $SolutionAutomationAccountName."
-        Remove-AzureRmAutomationCertificate -ResourceGroupName $SolutionResourceGroupname -automationAccountName $SolutionAutomationAccountName   -Name $certifcateAssetName
-        Write-Output "[Configure-AutomationSecurity] - Certificate asset  $certifcateAssetName deleted from Azure Automation Account $SolutionAutomationAccountName."
-    }
-    #
-    # Create a certificate Asset
-    # OK
-    Write-Output "[Configure-AutomationSecurity] - Configuring certificate asset $certifcateAssetName in Azure Automation Acccount $SolutionAutomationAccountName."
-    New-AzureRmAutomationCertificate -ResourceGroupName $SolutionResourceGroupname -automationAccountName $SolutionAutomationAccountName -Path $PfxCertPathForRunAsAccount -Name $certifcateAssetName -Password $CertPassword | Out-Null
-    Write-Output "[Configure-AutomationSecurity] - Certificate asset $certifcateAssetName sucecssfully configured in Azure Automation Acccount $SolutionAutomationAccountName."
-    If ($mode -eq "CREATE")
-    {
-        $ApplicationId = $Application.ApplicationId # cas CREATE
-    }
-    else 
-    {
-        $ApplicationID    = $TestAzureADApplication.AppId # Cas REUSE 
-    }
-    $Thumbprint = $PfxCert.Thumbprint
-    $ConnectionFieldValues = @{"ApplicationId" = $ApplicationID; "TenantId" = $((Get-AzContext).tenant.ID); "CertificateThumbprint" = $Thumbprint; "SubscriptionId" = $SolutionSubscriptionID} 
-    #
-    # Delete existing connection asset in Azure Automation account if already exists
-    # OK
-    $testconnectionasset = Get-AzureRmAutomationConnection -ResourceGroupName $SolutionResourceGroupname -automationAccountName $SolutionAutomationAccountName -Name $connectionAssetName -ErrorAction SilentlyContinue
-    If([string]::IsNullOrEmpty($testconnectionasset) -eq $False)        
-    {
-        Write-Output "[Configure-AutomationSecurity] - Removing existing connection asset named $connectionAssetName from Azure Automation Account $SolutionAutomationAccountName."
-        Remove-AzureRmAutomationConnection -ResourceGroupName $SolutionResourceGroupname -automationAccountName $SolutionAutomationAccountName -Name $connectionAssetName -Force
-        Write-Output "[Configure-AutomationSecurity] - Existing connection asset named $connectionAssetName successfully removed from Azure Automation Account $SolutionAutomationAccountName."
-    }
-
-# Initialiser avec les données créées
-# Déplacer dans Configure-AutomationSecurity.PS1
-#    $testAutomationVariable = Get-AzureRmAutomationVariable -AutomationAccountName $AutomationAccountName -ResourceGroupName $SolutionResourceGroupname -Name "RunbookAutomationServicePrincipalID" -ErrorAction SilentlyContinue
-#    If([string]::IsNullOrEmpty($testAutomationVariable) -eq $false)          
-#    {
-#        Remove-AzureRmAutomationVariable -AutomationAccountName $AutomationAccountName -ResourceGroupName $SolutionResourceGroupname -Name "RunbookAutomationServicePrincipalID"
-#    }
-#    New-AzureRmAutomationVariable -AutomationAccountName $AutomationAccountName -ResourceGroupName $SolutionResourceGroupname -Name "RunbookAutomationServicePrincipalID" -Value $SolutionApplicationId -Description "Azure Automation Service Principal ID" -Encrypted $true | Out-Null
-
-
-
-    Write-Output "[Configure-AutomationSecurity] - Creating a connection asset named $connectionAssetName in Azure Automation Account $SolutionAutomationAccountName."
-    New-AzureRmAutomationConnection -ResourceGroupName $SolutionResourceGroupname -automationAccountName $SolutionAutomationAccountName -Name $connectionAssetName -ConnectionTypeName $connectionTypeName -ConnectionFieldValues $connectionFieldValues | Out-Null
-    Write-Output "[Configure-AutomationSecurity] - Connection asset named $connectionAssetName successfully created in Azure Automation Account $SolutionAutomationAccountName."
-#
-# intégrer l'appartenance du service principal dans le groupe Azure AD
-#
-    Get-ChildItem $PfxCertPathForRunAsAccount | Remove-Item | Out-Null
-
-    $CertPassword = $Null
-    Get-ChildItem $PfxCertPathForRunAsAccount | Remove-Item | Out-Null
-
-    Write-Output "[Configure-AutomationSecurity] - Azure Automation account $SolutionAutomationAccountName successfully initialized."  
-}
-catch 
-{
-    Write-Warning "[ERROR] - Error while creating Azure Automation instance $SolutionAutomationAccountName."
-    
-    $CertPassword = $Null
-    exit
-}
+#}
+#catch 
+#{
+#    Write-Warning "[ERROR] - Error while creating Azure Automation instance $SolutionAutomationAccountName."   
+#    $CertPassword = $Null
+#    exit
+#}
