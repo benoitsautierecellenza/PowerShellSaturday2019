@@ -22,14 +22,27 @@
                 "UAT",
                 "PROD"
             ]
+        },
+        "_artifactsLocation": {
+          "type": "string",
+          "defaultValue": "https://automationartifact.blob.core.windows.net",
+          "metadata": {
+            "description": "The base URI where artifacts required by this template are located"
+          }
+        },
+        "_artifactsLocationSasToken": {
+          "type": "securestring",
+          "defaultValue": "?sv=2018-03-28&ss=b&srt=sco&sp=rwdlac&se=2019-11-09T00:24:37Z&st=2019-08-15T15:24:37Z&spr=https&sig=XRRsMPE%2FWRNB1uvD5w2Yj4WwXGL2cYCgEqNblj1k%2FVQ%3D",
+          "metadata": {
+            "description": "The sasToken required to access _artifactsLocation.  When the template is deployed using the accompanying scripts, a sasToken will be automatically generated"
+          }
         }
       },
       "variables": {
         "sku": "Basic",
-
         "azAccountsModule": {
           "name": "Az.Accounts",
-          "url": "https://www.powershellgallery.com/api/v2/package/Az.Accounts/1.6.1"
+          "url": "https://www.powershellgallery.com/api/v2/package/Az.Accounts/1.6.2"
         },
         "otherModules": [
           {
@@ -53,10 +66,6 @@
             "url": "https://www.powershellgallery.com/api/v2/package/Az.Keyvault/1.0.1"
           },
           {
-            "name": "Az.OperationalInsights",
-            "url": "https://www.powershellgallery.com/api/v2/package/Az.OperationalInsights/1.1.0"
-          },
-          {
             "name": "Az.Network",
             "url": "https://www.powershellgallery.com/api/v2/package/Az.Network/1.2.0"
           },
@@ -67,12 +76,19 @@
           {
             "name": "Az.Compute",
             "url": "https://www.powershellgallery.com/api/v2/package/Az.Compute/1.6.0"
-          },
-          {
-            "name": "Az.Monitor",
-            "url": "https://www.powershellgallery.com/packages/Az.Monitor/1.2.1"
           }
+        ],
+        "runbooks": [
+            {
+                "name": "First-Runbook",
+                "version": "1.0.0.0",
+                "description": "First Runbook",
+                "type": "PowerShell",
+                "scriptUri": "[concat(parameters('_artifactsLocation'),'/scripts/FirstRunbook.ps1',parameters('_artifactsLocationSasToken'))]"
+            }
+
         ]
+       
       },
       "resources": [
         {
@@ -94,8 +110,10 @@
               "name": "subscriptionId",
               "type": "variables",
               "apiVersion": "2015-10-31",
-              "location": "northeurope",
-              "tags": {},
+              "location": "[parameters('automationAccountRegion')]",
+              "tags": {
+                "Environment": "[parameters('EnvironmentTag')]"
+              },
               "properties": {
                 "description": "Automation Account subscription ID",
                 "value": "[concat('\"', subscription().subscriptionId, '\"')]",
@@ -109,8 +127,10 @@
               "name": "tenantId",
               "type": "variables",
               "apiVersion": "2015-10-31",
-              "location": "northeurope",
-              "tags": {},
+              "location": "[parameters('automationAccountRegion')]",
+              "tags": {
+                "Environment": "[parameters('EnvironmentTag')]"
+              },
               "properties": {
                 "description": "Automation Account tenant ID",
                 "value": "[concat('\"', subscription().tenantId, '\"')]",
@@ -124,7 +144,9 @@
               "name": "[concat(parameters('automationAccountName'), '/', variables('azAccountsModule').name)]",
               "type": "Microsoft.Automation/automationAccounts/modules",
               "apiVersion": "2015-10-31",
-              "tags": {},
+              "tags": {
+                "Environment": "[parameters('EnvironmentTag')]"
+              },
               "dependsOn": [
                 "[resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName'))]"
               ],
@@ -140,7 +162,9 @@
           "name": "[concat(parameters('automationAccountName'), '/', variables('otherModules')[copyIndex()].name)]",
           "type": "Microsoft.Automation/automationAccounts/modules",
           "apiVersion": "2015-10-31",
-          "tags": {},
+          "tags": {
+            "Environment": "[parameters('EnvironmentTag')]"
+          },
           "dependsOn": [
             "[resourceId('Microsoft.Automation/automationAccounts/', parameters('automationAccountName'))]",
             "[resourceId('Microsoft.Automation/automationAccounts/modules', parameters('automationAccountName'), variables('azAccountsModule').name)]"
@@ -152,6 +176,33 @@
           "properties": {
             "contentLink": {
               "uri": "[variables('otherModules')[copyIndex()].url]"
+            }
+          }
+        },
+        {
+          "name": "[concat(parameters('automationAccountName'), '/', variables('runbooks')[copyIndex()].name)]",
+          "type": "Microsoft.Automation/automationAccounts/runbooks",
+          "apiVersion": "2015-10-31",
+          "location": "[parameters('automationAccountRegion')]",          
+          "dependsOn": [
+            "[resourceId('Microsoft.Automation/automationAccounts', parameters('automationAccountName'))]"
+          ],
+          "tags": {
+            "version": "[variables('runbooks')[copyIndex()].version]",
+            "Environment": "[parameters('EnvironmentTag')]"
+          },
+          "copy": {
+            "name": "runbooksLoop",
+            "count": "[length(variables('runbooks'))]"
+          },
+          "properties": {
+            "runbookType": "[variables('runbooks')[copyIndex()].type]",
+            "logProgress": false,
+            "logVerbose": false,
+            "description": "[variables('runbooks')[copyIndex()].description]",
+            "publishContentLink": {
+              "uri": "[variables('runbooks')[copyIndex()].scriptUri]",
+              "version": "[variables('runbooks')[copyIndex()].version]"
             }
           }
         }
