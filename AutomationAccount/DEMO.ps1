@@ -1,6 +1,8 @@
 #
 # Prerequisites
 #
+# Delete Azure AD Application AutomationPROD
+
 Install-Module -Name 'AzureAD.Standard.Preview' -Force -Scope CurrentUser -SkipPublisherCheck -AllowClobber 
 import-module azuread.standard.preview
 Connect-AzureAd
@@ -22,9 +24,9 @@ Find-Module -Name Az.Network -Repository PSGallery -IncludeDependencies
 Find-Module -Name Az.RecoveryServices -Repository PSGallery -IncludeDependencies
 Find-Module -Name Az.Compute -Repository PSGallery -IncludeDependencies
 #
-# Demo n°2 : Déploiement Azure Automation Account
+# Demo n°2 : Deploy Azure Automation Account (6 minutes)
 #
-$ResourceGroupName = "DemoPowerShellSaturdayV2"
+$ResourceGroupName = "DemoPowerShellSaturday"
 [String]$Environment = "PROD"
 [String]$AzureRegion = "WestEurope"
 $DeploymentName = $Environment + (new-guid).guid 
@@ -36,7 +38,8 @@ New-AzResourceGroupDeployment -Name $DeploymentName `
     -TemplateUri $TemplateFileURI `
     -automationAccountName $AutomationAccountName `
     -automationAccountRegion $AzureRegion `
-    -EnvironmentTag $Environment
+    -EnvironmentTag $Environment `
+    -AsJob
 #
 # Demo n°3 :Créating KeyVault
 #
