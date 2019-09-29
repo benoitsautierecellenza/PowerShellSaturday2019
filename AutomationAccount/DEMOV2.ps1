@@ -15,17 +15,20 @@ Find-Module -Name Az.Compute -Repository PSGallery -IncludeDependencies
 # Demo n°2 : Déploiement Azure Automation Account
 #
 Set-AzContext -subscriptionID 5be15500-7328-4beb-871a-1498cd4b4536
-$ResourceGroupName = "DemoPowerShellSaturdayV2"
+$ResourceGroupName = "DemoPowerShellSaturday"
 [String]$Environment = "PROD"
 [String]$AzureRegion = "WestEurope"
 $DeploymentName = $Environment + (new-guid).guid 
+$AutomationAccountName = "Automation$Environment"
 $TemplateFileURI = "https://raw.githubusercontent.com/Benoitsautierecellenza/PowerShellSaturday2019/master/AutomationAccount/AutomationAccount.JSON"
-$ParameterFileURI = "https://raw.githubusercontent.com/Benoitsautierecellenza/PowerShellSaturday2019/master/AutomationAccount/parameters.json"
 New-AzResourceGroup $ResourceGroupName -Location WestEurope
-New-AzResourceGroupDeployment -Name $DeploymentName -ResourceGroupName $ResourceGroupName -TemplateUri $TemplateFileURI -automationAccountName LAB -automationAccountRegion $AzureRegion -EnvironmentTag $Environment
+New-AzResourceGroupDeployment -Name $DeploymentName `
+    -ResourceGroupName $ResourceGroupName `
+    -TemplateUri $TemplateFileURI `
+    -automationAccountName $AutomationAccountName `
+    -automationAccountRegion $AzureRegion `
+    -EnvironmentTag $Environment
 
-
-#-TemplateParameterUri $ParameterFileURI -automationAccountName LAB 
 #
 # Monter le déploiement et les ressources
 #
@@ -35,9 +38,7 @@ New-AzResourceGroupDeployment -Name $DeploymentName -ResourceGroupName $Resource
 #
 
 #
-# Créer l'application Azure AD
+#
 #
 
-#
-# Importer les secrets 
-#
+#. .\0-Initialize-AutomationAccountSecurity.PS1 -SolutionResourceGroupName "LabAutomation" -SolutionKeyVaultName "LabAutomation" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536" -SolutionAutomationAccountName "LabAutomation" -AutomationCertificateLifetimePolicy 365 -AutomationAzureADApplicationName LABAUTOMATION 

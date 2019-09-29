@@ -1,8 +1,6 @@
 
 
 
-#. .\0-Initialize-AutomationAccountSecurity.PS1 -SolutionResourceGroupName "LabAutomation" -SolutionKeyVaultName "LabAutomation" -SolutionSubscriptionID "5be15500-7328-4beb-871a-1498cd4b4536" -SolutionAutomationAccountName "LabAutomation" -AutomationCertificateLifetimePolicy 365 -AutomationAzureADApplicationName LABAUTOMATION 
-
 # TODO : Mise en place de permission sur secrets pour stocker le mot de passe associé au PFX
 
 #
