@@ -81,13 +81,14 @@
             "name": "Az.OperationalInsights",
             "url": "https://www.powershellgallery.com/api/v2/package/Az.OperationalInsights/1.3.3"
           },
-
           {
             "name": "Az.Monitor",
             "url": "https://www.powershellgallery.com/api/v2/package/Az.Monitor/1.3.3"
+          },
+          {
+            "name": "AzTable",
+            "url": "https://www.powershellgallery.com/api/v2/package/AzTable/2.0.2"
           }
-                          
-
         ],
         "runbooks": [
             {
