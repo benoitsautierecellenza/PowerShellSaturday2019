@@ -3,15 +3,54 @@
 [String]$ArtifactFolder = "artifacts"
 [String]$RolesFolder = "Roles"
 [String]$VersionFileName = "version.txt"
+[String]$AlertFolderName = "Alerts"
+[String]$CustommetricsFolderName = "CustomMetrics"
+[String]$RunbookFolderName = "Runbooks"
+[String]$DependenciesFolderName = "Dependencies"
+[String]$ScriptsFolderName = "Scripts"
+[String]$PostAssignScriptFolderName = "POSTASSIGN"
+[String]$PostDeployScriptFolderName = "POSTDEPLOY"
+[String]$PreAssignScriptFolderName = "PREASSIGN"
+[String]$PreDeployScriptFolderName = "PREDEPLOY"
+[String]$CleanupScriptFolderName = "CLEANUP"
+
 [String]$RolesRootFolder = (get-location).path
 [Int]$MissingRootFolder_ErrorCode = -1
 [Int]$MissionVersionFile_ErrorCode = -2
 [Int]$DeployBluePrintImportArtefact_ErrorCode = -3
 [Int]$DeployBluePrintPublish_ErrorCode = -5
+[Int]$DeployBluePrintAlreadyExists_ReturnCode = 1
+
+[Int]$ProcessedRoles = 0
 
 #
 # Begin functions
 #
+Function LogMessage(
+    [ValidateNotnullorEmpty()]
+    [Parameter(Mandatory=$True)]    
+    $Message,
+    [ValidateSet("Information","Warning","Error")]
+    [Parameter(Mandatory=$True)]
+    $Level
+    )
+{
+    $ProcessingTime = $((get-date).ToLocalTime()).ToString("yyyy-MM-dd HH:mm:ss")
+    Switch($Level)
+    {
+        "Information" {
+            Write-Output ($ProcessingTime + " - " + $Message)
+
+        }
+        "Warning" {
+            Write-Warning ($ProcessingTime + " - " + $Message)
+
+        }
+        "Error" {
+            Write-Error ($ProcessingTime + " - " + $Message)
+        }
+    }
+}
 Function Deploy-BluePrint(
     [ValidateNotnullorEmpty()]
     [Parameter(Mandatory=$True)]
@@ -22,41 +61,63 @@ Function Deploy-BluePrint(
 )
 {
     [Bool]$FullArtifactImportSuccess_Flag = $True
-    Write-Output "[Deploy-BluePrint] - Begin $BlueprintRootPath."
+    Logmessage -Message "[Deploy-BluePrint] - Begin $BlueprintRootPath." -Level Information
     $CheckVersionFile =[System.IO.File]::Exists($($BlueprintRootPath + "\$VersionFileName")) 
     If ($CheckVersionFile -eq $True)
     {
-        Write-Output "[Deploy-BluePrint] - $VersionFileName file found at root of $BlueprintRootPath."
+        Logmessage -Message "[Deploy-BluePrint] - $VersionFileName file found at root of $BlueprintRootPath." -Level Information 
         [String]$BluePrintName = (get-item -Path $BlueprintRootPath).Name
         [String]$BluePrintVersion = get-content $($BlueprintRootPath + "\$VersionFileName")
-#
-# Only import if version of Blueprint file does not match blueprints already inside
-#
-# COntinuer ici si vide OK, si pas vide, alors checker les versions
+        #
+        # Only import if version of Blueprint file does not match blueprints already inside
+        #
         $checkExistingBluePrint = Get-AzBlueprint -ManagementGroupId $ManagementGroupID -Name $BluePrintName -ErrorAction SilentlyContinue
-        If([string]::IsNullOrEmpty($checkExistingBluePrint)) {
-
+        If(([string]::IsNullOrEmpty($checkExistingBluePrint))) {
+            LogMessage -message "[Deploy-BluePrint] - BluePrint named $BluePrintName does not exist yet at scope $ManagementGroupID." -Level Information
         }
-
+        else {
+            LogMessage -Message "[Deploy-BluePrint] - BluePrint named $BluePrintName already exists at scope $ManagementGroupID." -Level Information
+            If (($checkExistingBluePrint.versions) -match $BluePrintVersion) {
+                #
+                # No need to deploy BluePrint version to scope because already at this level
+                # OK
+                LogMessage -message "[Deploy-BluePrint] - BluePrint named $BluePrintName with version $BluePrintVersion already deployed at scope $ManagementGroupID" -Level Information
+                Return $DeployBluePrintAlreadyExists_ReturnCode
+            }
+            else {
+                #
+                # BluePrint version can be published
+                # OK
+                Logmessage -message "[Deploy-BluePrint] - BluePrint named $BluePrintName already exist at scope $ManagementGroupID, but not for version $BluePrintVersion." -Level Information
+            }
+        }
         #
         # Create the Blueprint Object
         #
-        Import-AzBlueprintWithArtifact -Name $BluePrintName -ManagementGroupId $ManagementGroupID -InputPath $BlueprintRootPath -force
-        $BluePrintObject = Get-AzBlueprint -ManagementGroupId $ManagementGroupID -Name $BluePrintName 
+        try {
+            LogMessage -Message "[Deploy-BluePrint] - Create Blueprint $BluePrintName." -Level Information
+            Import-AzBlueprintWithArtifact -Name $BluePrintName -ManagementGroupId $ManagementGroupID -InputPath $BlueprintRootPath -force
+            $BluePrintObject = Get-AzBlueprint -ManagementGroupId $ManagementGroupID -Name $BluePrintName                 
+            LogMessage -Message "[Deploy-BluePrint] - BluePrint $BluePrintName created as Draft." -Level Information
+        }
+        catch {
+            Logmessage -Message "[Deploy-BluePrint] - BluePrint $BluePrintName not created. Error : $($_.Exception.Message)." -Level Error
+            return $DeployBluePrintImportArtefact_ErrorCode           
+        }
         #
         # Parse all artefacts object composing the Blueprint (except the BluePrint definition File)
         #
         Foreach ($file in (Get-ChildItem "$BlueprintRootPath\$ArtifactFolder")) {
-            Write-Output "[Deploy-BluePrint] - Processing BluePrint artefact $($file.name) for Blueprint $BluePrintName."
+            LogMessage -Message "[Deploy-BluePrint] - Processing BluePrint artefact $($file.name) for Blueprint $BluePrintName." -Level Information
             try {
                 New-AzBlueprintArtifact -Name $($file.name) -Blueprint $BluePrintObject -ArtifactFile ($file.FullName)   | Out-Null              
             }
             catch {
-                Write-Error "[Deploy-BluePrint] - Unable to import BluePrint artefact $($file.name) for Blueprint $BluePrintName. Error : $($_.Exception.Message)"
+                Logmessage -Message "[Deploy-BluePrint] - Unable to import BluePrint artefact $($file.name) for Blueprint $BluePrintName. Error : $($_.Exception.Message)." -Level Error
                 $FullArtifactImportSuccess_Flag = $False # To avoid blueprint publishing
                 return $DeployBluePrintImportArtefact_ErrorCode
             }
-            Write-Output "[Deploy-BluePrint] - BluePrint artefact $($file.name) processed successfully for BluePrint $BluePrintName."
+            LogMessage -message "[Deploy-BluePrint] - BluePrint artefact $($file.name) processed successfully for BluePrint $BluePrintName." -level Information
         }
         If ($FullArtifactImportSuccess_Flag -eq $true)
         {
@@ -64,28 +125,101 @@ Function Deploy-BluePrint(
             # All Blueprint artefacts imported successfully, publish the Blueprint with version
             #
             try {
-                Write-Output "[Deploy-BluePrint] - Publishing BluePrint $BluePrintName version $BluePrintVersion."
+                Logmessage -message "[Deploy-BluePrint] - Publishing BluePrint $BluePrintName version $BluePrintVersion." -Level Information
                 $BluePrintObject = Get-AzBlueprint -Name $BluePrintName -ManagementGroupId $ManagementGroupID
                 Publish-AzBlueprint -Blueprint $BluePrintObject -Version $BluePrintVersion
-                Write-Output "[Deploy-BluePrint] - BluePrint $BluePrintName succesfully published with version $BluePrintVersion."
+                LogMessage -message "[Deploy-BluePrint] - BluePrint $BluePrintName succesfully published with version $BluePrintVersion." -Level Information
+                return $true
             }
             catch {
-                Write-Error "Error while publishing Blueprint $BluePrintName. Error : $($_.Exception.Message)"
+                LogMessage -message "Error while publishing Blueprint $BluePrintName. Error : $($_.Exception.Message)" -Level Error
                 Return $DeployBluePrintPublish_ErrorCode
             }
         }
     }
     else {
-       Write-Error "[Deploy-BluePrint] -  $VersionFileName file not found at root of $BlueprintRootPath."
+       Logmessage -message "[Deploy-BluePrint] -  $VersionFileName file not found at root of $BlueprintRootPath." -Level Error
        Return $MissionVersionFile_ErrorCode
     }
-    Write-Output "[Deploy-BluePrint] - End $BlueprintRootPath."
+    Logmessage -Message "[Deploy-BluePrint] - End $BlueprintRootPath." -Level Information
 }
-#
-# end functions
-#
 
-Write-Output "[Main] - Begin."
+Function Deploy-RoleDependencies (
+    [ValidateNotnullorEmpty()]
+    [Parameter(Mandatory=$True)]
+    [String]$RoleName,
+    [ValidateNotnullorEmpty()]
+    [Parameter(Mandatory=$True)]
+    [String]$FolderName
+)
+{
+    $SaveLocation = Get-Location
+    Set-Location -Path $FolderName
+    $DependenciesFolders = Get-ChildItem -Directory
+    If ($DependenciesFolders.Count -Gt 0)
+    {
+        Foreach($DependenciesFolder in $DependenciesFolders) {
+            $DependencyFolderName = $($DependenciesFolder.name).tolower()
+            Switch($DependencyFolderName)
+            {
+                $AlertFolderName  {
+                    LogMessage -message "[Deploy-RoleDependencies] - Folder $AlertFolderName found. Alerts will be processed." -Level Information
+                }      
+                $CustommetricsFolderName {
+                    LogMessage -message "[Deploy-RoleDependencies] - Folder $CustommetricsFolderName found. CustomMetrics will be processed." -Level Information
+                }
+                $RunbookFolderName {
+                    LogMessage -message "[Deploy-RoleDependencies] - Folder $RunbookFolderName found. Automation Runbooks will be imported." -Level Information
+                }
+            }
+            Write-Output "Processing $($DependenciesFolder.name)"
+        } 
+    }
+    else {
+        LogMessage -Message "[Deploy-RoleDependencies] - No dependencies to process for Role $RoleName." -Level Information
+    }
+    Set-location -Path $savelocation
+}
+
+Function Deploy-RoleScripts
+(
+    [ValidateNotnullorEmpty()]
+    [Parameter(Mandatory=$True)]
+    [String]$RoleName,
+    [ValidateNotnullorEmpty()]
+    [Parameter(Mandatory=$True)]
+    [String]$FolderName
+)
+{
+    $SaveLocation = Get-Location
+    Set-Location -Path $FolderName
+    $DependenciesFolders = Get-ChildItem -Directory
+    If ($DependenciesFolders.Count -Gt 0)
+    {
+        Foreach($DependenciesFolder in $DependenciesFolders) {
+            $DependencyFolderName = $($DependenciesFolder.name).tolower()
+            Switch($DependencyFolderName)
+            {
+                $PreDeployScriptFolderName  {
+                    LogMessage -message "[Deploy-RoleScripts] - Folder $PreDeployScriptFolderName found. Pre-Deploy scripts will be processed." -Level Information
+                }      
+                $PostDeployScriptFolderName {
+                    LogMessage -message "[Deploy-RoleDependencies] - Folder $PostDeployScriptFolderName found. Post-Deploy scripts will be processed." -Level Information
+                }
+            }
+            Write-Output "Processing $($DependenciesFolder.name)"
+        } 
+    }
+    else {
+        LogMessage -Message "[Deploy-RoleDependencies] - No dependencies to process for Role $RoleName." -Level Information
+    }
+    Set-location -Path $savelocation
+}
+
+
+Function Deploy()
+{
+    LogMessage -Message "[Main] - Begin."  -level "Information"
 #
 # Check for ROLES subfolder
 # OK
@@ -94,7 +228,7 @@ if((($TestRolesRootFolder.name) -contains $RolesFolder) -eq $False) {
     #
     # Roles ub-folder does not exists
     # OK
-    Write-Error "[Main] - Unable to locate sub-folder $RolesFolder in $RolesRootFolder."
+    Logmessage -Message "[Main] - Unable to locate sub-folder $RolesFolder in $RolesRootFolder." -Level "Error"
     return $MissingRootFolder_ErrorCode
     Exit
 }
@@ -103,112 +237,89 @@ Else
     #
     # Roles Sub-Folder found
     # OK
-    Write-Output "[Main] - Sub-folder $RolesFolder found in $RolesRootFolder."
+    LogMessage -Message "[Main] - Sub-folder $RolesFolder found in $RolesRootFolder." -Level "Information"
 }
+#
+# Première passe : Identifier les scripts et dépendances à traiter avant déploiement pour alimenter des listes
+# TODO
+$FoldersList = Get-ChildItem -Path ".\$RolesFolder" -Recurse -Directory
+$FoldersList.FullName -like "*\$PreDeployScriptFolderName"
+$FoldersList.FullName -like "*\$PostDeployScriptFolderName"
 #
 # Processing each sub-folder as a role
 #
-$CurrentSubscription = Get-Azcontext # Save to restore at the end
+$SaveSubscription = Get-Azcontext # Save to restore at the end
 Set-AzContext -SubscriptionID $SubscriptionID
 $Savelocation = Get-Location    
 [String]$RolesRootFolder = (get-location).path + "\$RolesFolder\"
 $ProcessedFolders = Get-ChildItem $RolesRootFolder -Directory
 foreach($RoleRootFolder in $ProcessedFolders) {
+    #
+    # Process each role
+    #
+    $ProcessedRoles +=1
     Set-location $RoleRootFolder
     $ProcessedRoleName = (Get-Item $RoleRootFolder).name
-    Write-Output "[Main] - Processing Role $ProcessedRoleName."
+    Logmessage -Message "[Main] - Processing Role $ProcessedRoleName." -Level "Information"
+#
+# Intégrer ici le processing des PREDEPLOY scripts
+#
     $FoldersInRole = Get-ChildItem -Directory
     #
     # Process each subfolders in each role, filtering specific names
     # 
+    [Int]$Count_ProcessedBluePrintsInRole = 0
+    [Int]$Count_SuccessBluePrintsInRole = 0
+    [Int]$Count_FailedBluePrintsInRole = 0
     ForEach ($folder in $FoldersInRole) {
+
         Switch(($folder.name).tolower()) {
-            "dependencies" {
-                Write-Warning "TODO dependencies"
+            $DependenciesFolderName {
+                # Revoir, il faut une première passe pour identifier les répertoires contenant les dependances
+                Deploy-RoleDependencies -Rolename $ProcessedRoleName -folderName  $folder.fullname            
             }
-            "scripts" {
-                Write-Warning "TODO scripts"
+            $ScriptsFolderName {
+                # Revoir, il faut une première passe pour identifier les répertoires contenant les dependances
+                Deploy-RoleScripts -Rolename $ProcessedRoleName -folderName  $folder.fullname           
             }
             default {
-                Deploy-BluePrint $folder.FullName -ManagementGroupID $ManagementGroupname # Later import au niveau souscription?
+                $Count_ProcessedBluePrintsInRole += 1
+                $retour = Deploy-BluePrint $folder.FullName -ManagementGroupID $ManagementGroupname # Later import au niveau souscription?
+                switch ($retour) {
+                    $true {
+                        $Count_SuccessBluePrintsInRole += 1
+                    }
+                    $DeployBluePrintAlreadyExists_ReturnCode {
+                        $Count_SuccessBluePrintsInRole +=1
+                    }
+                    default {
+                        $Count_FailedBluePrintsInRole +=1
+                    }
+                }
+                    
             }
         }
-
+        #Traitement des POSTDEPLOY
     }
-
-    Write-Output "[Main] - Role $ProcessedRoleName processed."
-}
-Set-location $Savelocation
-Write-Output "[Main] - End."
-exit
-
-#
-# Process each Role sub-folders
-#
-ForEach ($RoleFolder in $(Get-ChildItem $RolesRootFolder -Directory)) {
-    Write-Output "Processing Role $($RoleFolder.name)."
-
-    Write-Output "Role $($RoleFolder.name) processed."
-}
-
-"done"
-exit
-
-# TODO : intégrer le parsing de répertoires représentant les rôles à sécuriser
-#
-# Source : https://github.com/Azure/azure-blueprints
-#
-[String]$BluePrintsRootFolder = "C:\localgit\PowerShellSaturday2019\BluePrint\BluePrints\"
-
-
-
-Set-AzContext -SubscriptionID $SubscriptionID
-#
-# Process BluePrints folder
-#
-Foreach ($BluePrintFolder in (Get-Childitem $BluePrintsRootFolder -Directory)) {
-    Write-Output "Processing Azure Blueprint $($BluePrintFolder.Name)."
+    Logmessage -Message "[Main] - Role $ProcessedRoleName processed." -Level "Information"
     #
-    # Check for version.txt file
-    # OK
-    $CheckVersionFile =[System.IO.File]::Exists($($BluePrintFolder.FullName + "\version.txt")) 
-    If ($CheckVersionFile -eq $True)
-    {
-        #
-        # File version description exists at root of the Blueprint Folder
-        #
-        [String]$BluePrintName = $BluePrintFolder.Name
-        [String]$BluePrintVersion = get-content $($BluePrintFolder.FullName + "\version.txt")
-        #
-        # Create the Blueprint Object
-        #
-        Import-AzBlueprintWithArtifact -Name $BluePrintName  `
-            -ManagementGroupId $ManagementGroupname `
-            -InputPath $BluePrintFolder.FullName `
-            -Force  
-        $BluePrintObject = Get-AzBlueprint -ManagementGroupId $ManagementGroupname -Name $BluePrintName 
-        #
-        # Parse all artefacts object composing the Blueprint (except the BluePrint definition File)
-        #
-        Foreach ($file in (Get-ChildItem "$BluePrintFolder\$ArtifactFolder")) {
-            Write-Output "Processing Blueprint artefact $($file.name) for Blueprint $BluePrintName"
-            New-AzBlueprintArtifact -Name $($file.name) -Blueprint $BluePrintObject -ArtifactFile ($file.FullName)
-        }
-        #
-        # Publish BluePrint
-        # BUG ICI
-        $BluePrintObject = Get-AzBlueprint -Name $BluePrintName -ManagementGroupId $ManagementGroupname
-        Publish-AzBlueprint -Blueprint $BluePrintObject -Version $BluePrintVersion
-    }
-    else {
-        Write-Error "Unable to process $($BluePrintFolder.Name) dur to missing version.txt file att BluePrint root folder."
-    }
+    # Intégrer ic le traitement des postDEPLOY
+    #
 }
-"DONE"
-exit
-#
+Logmessage -Message "[Main] - Processed roles $ProcessedRoles." -Level Information
+Set-AzContext -SubscriptionId $SaveSubscription.Subscription.id
+Set-location $Savelocation
+LogMessage -Message "[Main] - End." -Level "Information"
+}
+Function Assign()
+{
+    # Assignation selon des 
+
+    #
 # Reprocess de chaque répertoire pour parner le ASSIGN.JSON
 #
+# Intégrer la prise en charge de variables?
+
 # format à imposer dans le JSON à charger dans le ASSIGN.JSON
 $parameters = @{ 
     resourceNamePrefix = "DemoBluePrint"
@@ -220,136 +331,8 @@ $AssignedBluePrintName = $BluePrintName
 $TestBluePrintAssignment = New-AzBlueprintAssignment -Blueprint $PublishedBluePrintObject -Location WestEurope -SubscriptionId $SubscriptionID -ResourceGroupParameter $rgArray -Parameter $parameters -Name $AssignedBluePrintName -Lock AllResourcesDoNotDelete
 
 
-"DONE"
-EXIT
-
-#
-# Import Blueprint network
-#
-# https://github.com/Azure/azure-blueprints/tree/master/samples/001-builtins/networking-vnet
-[String]$BluePrintName = "VirtualNetwork"
-[String]$BluePrintVersion = "1.0"
-[String]$BluePrintRootFolder = "C:\localgit\PowerShellSaturday2019\BluePrint\BluePrints\networking-vnet"
-Import-AzBlueprintWithArtifact -Name $BluePrintName -ManagementGroupId $ManagementGroupname -InputPath $BluePrintRootFolder -Force  
-$BluePrintObject = Get-AzBlueprint -ManagementGroupId $ManagementGroupname -Name $BluePrintName 
-#
-# Parse all artefacts object composing the Blueprint (except the BluePrint definition File)
-#
-Foreach ($file in (Get-ChildItem "$BluePrintRootFolder\artifacts"))    {
-        Write-Output "Processing Blueprint artefact $($file.name) for Blueprint $BluePrintName"
-        New-AzBlueprintArtifact -Name $($file.name) -Blueprint $BluePrintObject -ArtifactFile ($file.FullName)
 }
-$BluePrintObject = Get-AzBlueprint -Name $BluePrintName -ManagementGroupId $ManagementGroupname
-Publish-AzBlueprint -Blueprint $BluePrintObject -Version $BluePrintVersion
-
-
-exit
-$BluePrintObject = Get-AzBlueprint -Name $BluePrintName -ManagementGroupId $ManagementGroupname
-Publish-AzBlueprint -Blueprint $BluePrintObject -Version $BluePrintVersion
-
-
-[String]$BluePrintName = "PolicyEnforcement"
-[String]$BluePrintVersion = "1.0"
-Import-AzBlueprintWithArtifact -Name $BluePrintName -ManagementGroupId $ManagementGroupname -InputPath "C:\localgit\azure-blueprints\samples\001-builtins\common-policies\"
-
-C:\localgit\azure-blueprints\samples\001-builtins\common-policies>cd..
-
 #
-# Assign BluePrint
+# end functions
 #
-$PublishedBluePrintObject = Get-AzBlueprint -ManagementGroupId $ManagementGroupname -Name $BluePrintName -Version $BluePrintVersion
-#$rgHash = @{ name="DemoBluePrint"; location = "WestEurope" }
-
-$rgHash = @{ location = "WestEurope" } # Resource Group name is defined in BluePrint, do not nooed to add
-
-
-$parameters = @{ 
-    resourceNamePrefix = "DemoBluePrint"
-    addressSpaceForVnet ="192.168.0.0/16" 
-    addressSpaceForSubnet ="192.168.0.1/24" 
-}
-$rgArray = @{ SingleRG = $rgHash }
-$AssignedBluePrintName = $BluePrintName
-$TestBluePrintAssignment = New-AzBlueprintAssignment -Blueprint $PublishedBluePrintObject -Location WestEurope -SubscriptionId $SubscriptionID -ResourceGroupParameter $rgArray -Parameter $parameters -Name $AssignedBluePrintName -Lock AllResourcesDoNotDelete
-#
-# Check for BluePrint Assignment error at assign stage
-#
-
-#
-# Test Azure BluePrint Assignment
-#
-$TestBluePrintAssignment = Get-AzBlueprintAssignment -SubscriptionId $SubscriptionID -Name $AssignedBluePrintName
-While ($TestBluePrintAssignment.ProvisioningState -ne "Succeeded") {
-    Write-Output "Waiting for BluePrint Assignement $AssignedBluePrintName on subscription $SubscriptionID."
-}
-
-
-
-
-#-LatestPublished
-
-
-
-"DONE"
-exit
-#
-# Assign
-#
-$PublishedBluePrintObject = Get-AzBlueprint -ManagementGroupId $ManagementGroupname -Name $BluePrintName -LatestPublished
-$rgHash = @{ name="MyBoilerplateRG"; location = "WestEurope" }
-# all other (non-rg) parameters are listed in a single hashtable, with a key/value pair for each parameter
-$parameters = @{ principalIds="caeebed6-cfa8-45ff-9d8a-03dba4ef9a7d" }
-
-# All of the resource group artifact hashtables are themselves grouped into a parent hashtable
-# the 'key' for each item in the table should match the RG placeholder name in the blueprint
-$rgArray = @{ SingleRG = $rgHash }
-
-# Assign the new blueprint to the specified subscription (Assignment updates should use Set-AzBlueprintAssignment
-$AssignedBluePrintName = "$BluePrintName-$($PublishedBluePrintObject.Version)"
-New-AzBlueprintAssignment -Blueprint $PublishedBluePrintObject -Location WestEurope -SubscriptionId $SubscriptionID -ResourceGroupParameter $rgArray -Parameter $parameters -Name $AssignedBluePrintName
-
-
-exit
-
-[String]$ManagementGroupname = "MGMT01"
-[String]$BluePrintName = "VNET"
-[String]$Build = "1.0"
-[String]$AssignmentName = $BluePrintName +  $Build
-[String]$SubscriptionID = "5be15500-7328-4beb-871a-1498cd4b4536"
-$BluePrintObject = Get-AzBlueprint -Name $BluePrintName -ManagementGroupId $ManagementGroupname -LatestPublished
-
-
-
-
-#
-# Montrer les paramètres
-#
-$resourceNamePrefix = "TESTBP01"
-$addressSpaceForVnet = "192.168.0.0/16"
-$addressSpaceForSubnet = "192.168.1.0/254"
-$AssignParameters = @{
-    'resourceNamePrefix' = $resourceNamePrefix
-    'addressSpaceForVnet'= $addressSpaceForVnet
-    'addressSpaceForSubnet' = $addressSpaceForSubnet
-}
-#$RG = @{ResourceGroup=@{name='Networking';location='WestEurope'}}
-$RG = @{ResourceGroup=@{name='Networking'}}
-#
-# Corriger l'assignation des paramètres
-# BUG A CORRIGER ICI
-New-AzBlueprintAssignment -Name "VNET" `
-    -Blueprint $BluePrintObject `
-    -SubscriptionId $SubscriptionID `
-    -Location "West Europe" `
-    -Parameter $AssignParameters `
-    -ResourceGroupParameter $RG `
-    -Lock AllResourcesReadOnly
-
-exit
-# https://gertkjerslev.com/powershell-modul-for-azure-blueprint
-# $blueprintName = "TestBluePrint2"
-# $subscriptionId = "00000000-1111-0000-1111-000000000000"
-# $AssignmentName = "BP-Assignment"
-# $myBluerpint = Get-AzBlueprint -Name $blueprintName -LatestPublished
-# $rg = @{ResourceGroup=@{name=’RG-BP-TEST1′}}
-# New-AzBlueprintAssignment -Name $AssignmentName -Blueprint $myBluerpint -SubscriptionId $subscriptionId -Location “West US” -ResourceGroupParameter $rg
+Deploy
