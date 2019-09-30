@@ -1,14 +1,167 @@
+[String]$ManagementGroupname = "MGMT01"
+[String]$SubscriptionID = "5be15500-7328-4beb-871a-1498cd4b4536"
+[String]$ArtifactFolder = "artifacts"
+[String]$RolesFolder = "Roles"
+[String]$VersionFileName = "version.txt"
+[String]$RolesRootFolder = (get-location).path
+[Int]$MissingRootFolder_ErrorCode = -1
+[Int]$MissionVersionFile_ErrorCode = -2
+[Int]$DeployBluePrintImportArtefact_ErrorCode = -3
+[Int]$DeployBluePrintPublish_ErrorCode = -5
+
+#
+# Begin functions
+#
+Function Deploy-BluePrint(
+    [ValidateNotnullorEmpty()]
+    [Parameter(Mandatory=$True)]
+    [String]$BlueprintRootPath,
+    
+    [Parameter(Mandatory=$False)]
+    [String]$ManagementGroupID
+)
+{
+    [Bool]$FullArtifactImportSuccess_Flag = $True
+    Write-Output "[Deploy-BluePrint] - Begin $BlueprintRootPath."
+    $CheckVersionFile =[System.IO.File]::Exists($($BlueprintRootPath + "\$VersionFileName")) 
+    If ($CheckVersionFile -eq $True)
+    {
+        Write-Output "[Deploy-BluePrint] - $VersionFileName file found at root of $BlueprintRootPath."
+        [String]$BluePrintName = (get-item -Path $BlueprintRootPath).Name
+        [String]$BluePrintVersion = get-content $($BlueprintRootPath + "\$VersionFileName")
+#
+# Only import if version of Blueprint file does not match blueprints already inside
+#
+# COntinuer ici si vide OK, si pas vide, alors checker les versions
+        $checkExistingBluePrint = Get-AzBlueprint -ManagementGroupId $ManagementGroupID -Name $BluePrintName -ErrorAction SilentlyContinue
+        If([string]::IsNullOrEmpty($checkExistingBluePrint)) {
+
+        }
+
+        #
+        # Create the Blueprint Object
+        #
+        Import-AzBlueprintWithArtifact -Name $BluePrintName -ManagementGroupId $ManagementGroupID -InputPath $BlueprintRootPath -force
+        $BluePrintObject = Get-AzBlueprint -ManagementGroupId $ManagementGroupID -Name $BluePrintName 
+        #
+        # Parse all artefacts object composing the Blueprint (except the BluePrint definition File)
+        #
+        Foreach ($file in (Get-ChildItem "$BlueprintRootPath\$ArtifactFolder")) {
+            Write-Output "[Deploy-BluePrint] - Processing BluePrint artefact $($file.name) for Blueprint $BluePrintName."
+            try {
+                New-AzBlueprintArtifact -Name $($file.name) -Blueprint $BluePrintObject -ArtifactFile ($file.FullName)   | Out-Null              
+            }
+            catch {
+                Write-Error "[Deploy-BluePrint] - Unable to import BluePrint artefact $($file.name) for Blueprint $BluePrintName. Error : $($_.Exception.Message)"
+                $FullArtifactImportSuccess_Flag = $False # To avoid blueprint publishing
+                return $DeployBluePrintImportArtefact_ErrorCode
+            }
+            Write-Output "[Deploy-BluePrint] - BluePrint artefact $($file.name) processed successfully for BluePrint $BluePrintName."
+        }
+        If ($FullArtifactImportSuccess_Flag -eq $true)
+        {
+            #
+            # All Blueprint artefacts imported successfully, publish the Blueprint with version
+            #
+            try {
+                Write-Output "[Deploy-BluePrint] - Publishing BluePrint $BluePrintName version $BluePrintVersion."
+                $BluePrintObject = Get-AzBlueprint -Name $BluePrintName -ManagementGroupId $ManagementGroupID
+                Publish-AzBlueprint -Blueprint $BluePrintObject -Version $BluePrintVersion
+                Write-Output "[Deploy-BluePrint] - BluePrint $BluePrintName succesfully published with version $BluePrintVersion."
+            }
+            catch {
+                Write-Error "Error while publishing Blueprint $BluePrintName. Error : $($_.Exception.Message)"
+                Return $DeployBluePrintPublish_ErrorCode
+            }
+        }
+    }
+    else {
+       Write-Error "[Deploy-BluePrint] -  $VersionFileName file not found at root of $BlueprintRootPath."
+       Return $MissionVersionFile_ErrorCode
+    }
+    Write-Output "[Deploy-BluePrint] - End $BlueprintRootPath."
+}
+#
+# end functions
+#
+
+Write-Output "[Main] - Begin."
+#
+# Check for ROLES subfolder
+# OK
+$TestRolesRootFolder = Get-ChildItem $RolesRootFolder -Directory 
+if((($TestRolesRootFolder.name) -contains $RolesFolder) -eq $False) {
+    #
+    # Roles ub-folder does not exists
+    # OK
+    Write-Error "[Main] - Unable to locate sub-folder $RolesFolder in $RolesRootFolder."
+    return $MissingRootFolder_ErrorCode
+    Exit
+}
+Else
+{
+    #
+    # Roles Sub-Folder found
+    # OK
+    Write-Output "[Main] - Sub-folder $RolesFolder found in $RolesRootFolder."
+}
+#
+# Processing each sub-folder as a role
+#
+$CurrentSubscription = Get-Azcontext # Save to restore at the end
+Set-AzContext -SubscriptionID $SubscriptionID
+$Savelocation = Get-Location    
+[String]$RolesRootFolder = (get-location).path + "\$RolesFolder\"
+$ProcessedFolders = Get-ChildItem $RolesRootFolder -Directory
+foreach($RoleRootFolder in $ProcessedFolders) {
+    Set-location $RoleRootFolder
+    $ProcessedRoleName = (Get-Item $RoleRootFolder).name
+    Write-Output "[Main] - Processing Role $ProcessedRoleName."
+    $FoldersInRole = Get-ChildItem -Directory
+    #
+    # Process each subfolders in each role, filtering specific names
+    # 
+    ForEach ($folder in $FoldersInRole) {
+        Switch(($folder.name).tolower()) {
+            "dependencies" {
+                Write-Warning "TODO dependencies"
+            }
+            "scripts" {
+                Write-Warning "TODO scripts"
+            }
+            default {
+                Deploy-BluePrint $folder.FullName -ManagementGroupID $ManagementGroupname # Later import au niveau souscription?
+            }
+        }
+
+    }
+
+    Write-Output "[Main] - Role $ProcessedRoleName processed."
+}
+Set-location $Savelocation
+Write-Output "[Main] - End."
+exit
+
+#
+# Process each Role sub-folders
+#
+ForEach ($RoleFolder in $(Get-ChildItem $RolesRootFolder -Directory)) {
+    Write-Output "Processing Role $($RoleFolder.name)."
+
+    Write-Output "Role $($RoleFolder.name) processed."
+}
+
+"done"
+exit
+
+# TODO : intégrer le parsing de répertoires représentant les rôles à sécuriser
 #
 # Source : https://github.com/Azure/azure-blueprints
 #
-[String]$ArtifactFolder = "artifacts"
 [String]$BluePrintsRootFolder = "C:\localgit\PowerShellSaturday2019\BluePrint\BluePrints\"
 
 
-[String]$ManagementGroupname = "MGMT01"
-[String]$SubscriptionID = "5be15500-7328-4beb-871a-1498cd4b4536"
-[String]$BluePrintName = "Boilerplate"
-[String]$BluePrintVersion = "1.0"
+
 Set-AzContext -SubscriptionID $SubscriptionID
 #
 # Process BluePrints folder
