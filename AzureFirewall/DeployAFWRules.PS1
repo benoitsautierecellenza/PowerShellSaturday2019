@@ -3,9 +3,11 @@
 [String]$SourceAddress = "10.6.0.0/16"
 [String]$Subscriptionname = (Get-AzContext).Subscription.name
 [String]$Version = "1.0"
+[DateTime]$StartDate = Get-Date
 #
 # Get Log Analytics OMS Workspace ID (required in OMS Agent firewall rules)
 #
+Write-Output "[DeployAFWRules] - Begin."
 $WorkspaceInstance = Get-AzOperationalInsightsWorkspace -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
 $OMSWorkspaceID = $WorkspaceInstance.CustomerId.guid
 #
@@ -157,6 +159,7 @@ $Rules = @{
 #
 # Process RuleS Hashtable to replace parameters
 #
+Write-Output "[DeployAFWRules] - Parsing JSON rule definition."
 $ApplicationRuleCollectionRules = @{}
 $NetworkRuleCollectionRules = @{}
 foreach($collection in $rules.GetEnumerator()) {
@@ -165,16 +168,16 @@ foreach($collection in $rules.GetEnumerator()) {
 	        #
 	        # JSON contain a Application Rule Collection
 	        #
-	        Write-host "Processing ApplicationRuleCollection"
+	        Write-Output "[DeployAFWRules] - Processing ApplicationRuleCollection."
 	        ForEach ($ApplicationRule in $collection.Value.GetEnumerator()) {
 	            If ($($ApplicationRule.Name) -like "GROUP") { 	                
-                    Write-Output "Process Azure Firewall group creation : $($ApplicationRule.Value.CollectionName)."
+                    Write-Output "[DeployAFWRules] - Process Azure Firewall group creation : $($ApplicationRule.Value.CollectionName)."
 	                $ApplicationGroupRuleName = ($ApplicationRule.Value.CollectionName + "-" + $Version)
 	                $ApplicationGroupRulePriority = $ApplicationRule.Value.Priority
 	                $ApplicationGroupRuleAction  = $ApplicationRule.Value.ActionType
 	            }
 	            else {
-	                Write-Output "Process Azure Firewall Application rule $($ApplicationRule.Name)."
+	                Write-Output "[DeployAFWRules] - Process Azure Firewall Application rule $($ApplicationRule.Name)."
 	                $ApplicationRuleCollectionRule = $Null
 	                $ApplicationRuleCollectionRule = New-AzFirewallApplicationRule `
 	                    -Name $ApplicationRule.Value.name `
@@ -190,16 +193,16 @@ foreach($collection in $rules.GetEnumerator()) {
 	    #
 	    # JSON contain a Network Rule Collection
 	    #
-	    Write-host "Processing NetworkRuleCollection"
+	    Write-Output "[DeployAFWRules] - Processing NetworkRuleCollection."
 	    ForEach ($NetworkRule in $collection.value.GetEnumerator()) {
 	        If ($($NetworkRule.Name) -like "GROUP") { 
-	            Write-Output "Process Azure Network group creation : $($NetworkRule.value.CollectionName)."
+	            Write-Output "[DeployAFWRules] - Process Azure Network group creation : $($NetworkRule.value.CollectionName)."
 	            $NetworkGroupRuleName = ($NetworkRule.Value.CollectionName + "-" + $Version)
 	            $NetworkGroupRulePriority = $NetworkRule.Value.Priority
 	            $NetworkGroupRuleAction  = $NetworkRule.Value.ActionType
 	        }
 	        else {                    
-	            Write-Output "Process Azure Firewall Network rule $($NetworkRule.Name)." 
+	            Write-Output "[DeployAFWRules] - Process Azure Firewall Network rule $($NetworkRule.Name)." 
 	            $networkRuleCollectionRule = $null
 	            $networkRuleCollectionRule  = New-AzFirewallNetworkRule `
 	                -Name  $networkrule.Value.name `
@@ -214,36 +217,37 @@ foreach($collection in $rules.GetEnumerator()) {
 	    }            
 	}
 }
-$ApplicationRuleCollectionRules.OMS_GEN2
+Write-Output "[DeployAFWRules] - JSON rule definition parsed successfully."
 #
 # Process each Firewall instances
 #
+Write-Output "[DeployAFWRules] - Update all Azure Firewall instances."
 $AzureFirewallList = Get-AzFirewall | select-Object resourcegroupname, name    
 ForeAch ($AzureFirewall in $AzureFirewallList) {
     #
     # Process Each Azure Firewall instance found 
 	#
-	Write-Output "Processing Azure Firewall rules for $($AzureFirewall.name) located in $($AzureFirewall.resourcegroupname)"
+	Write-Output "[DeployAFWRules] - Processing Azure Firewall rules for $($AzureFirewall.name) located in $($AzureFirewall.resourcegroupname)"
 	$AzureFirewallConfig = Get-AzFirewall -ResourceGroupName $($AzureFirewall.resourcegroupname) -Name $($AzureFirewall.name)
 	#
 	# Delete existing Application Rule collection
 	#
 	if (($AzureFirewallConfig.ApplicationRuleCollections.name) -contains $ApplicationGroupRuleName) {
-	    Write-Output "Deleting existing Azure Firewall application collection rule : $ApplicationGroupRuleName."
+	    Write-Output "[DeployAFWRules] - Deleting existing Azure Firewall application collection rule : $ApplicationGroupRuleName."
 	    $AzureFirewallConfig.RemoveApplicationRuleCollectionByName($ApplicationGroupRuleName)
 	}
 	else {
-	    Write-Output "No existing Azure Firewall Application Collection Rule named $ApplicationGroupRuleName."
+	    Write-Output "[DeployAFWRules] - No existing Azure Firewall Application Collection Rule named $ApplicationGroupRuleName."
 	}
 	#
 	# Delete existing Application Rule collection
 	#
 	if (($AzureFirewallConfig.NetworkRuleCollections.name) -contains $NetworkGroupRuleName) {
-	    Write-Output "Deleting existing Azure Firewall application collection rule : $NetworkGroupRuleName."
+	    Write-Output "[DeployAFWRules] - Deleting existing Azure Firewall application collection rule : $NetworkGroupRuleName."
 	    $AzureFirewallConfig.RemoveNetworkRuleCollectionByName($ApplicationGroupRuleName)
 	}
 	else {
-	    Write-Output "No existing Azure Firewall Application Collection Rule named $NetworkGroupRuleName."
+	    Write-Output "[DeployAFWRules] - No existing Azure Firewall Application Collection Rule named $NetworkGroupRuleName."
 	}   
 	#
 	# Create the required Application group rule with Firewall rules
@@ -252,7 +256,7 @@ ForeAch ($AzureFirewall in $AzureFirewallList) {
 	    #
 	    # Create Azure Firewall Application group with rules
 	    #
-	    Write-Output "Creating Azure Firewall Application Rule named $ApplicationGroupRuleName."
+	    Write-Output "[DeployAFWRules] - Creating Azure Firewall Application Rule named $ApplicationGroupRuleName."
 	    $NewAzFwApplicationRuleCollection = New-AzFirewallApplicationRuleCollection `
 	        -Name $ApplicationGroupRuleName `
 	        -Priority $ApplicationGroupRulePriority `
@@ -267,7 +271,7 @@ ForeAch ($AzureFirewall in $AzureFirewallList) {
 	# Create the required Network group rule with Firewall rules
 	#
 	If( $NetworkRuleCollectionRules.count -Gt 0) {
-	    Write-Output "Creating Azure Firewall Network Rule named $NetworkGroupRuleName."
+	    Write-Output "[DeployAFWRules] - Creating Azure Firewall Network Rule named $NetworkGroupRuleName."
 	    $NewAZFirewallNetworkRuleCollection = New-AzFirewallNetworkRuleCollection `
 	        -Name $NetworkGroupRuleName `
 	        -Priority $NetworkGroupRulePriority `
@@ -279,8 +283,11 @@ ForeAch ($AzureFirewall in $AzureFirewallList) {
 	    $NewAZFirewallNetworkRuleCollection = $Null
 	}
 	#
+	# Updating Azure Firewall instance 
 	#
-	#
-	Write-output  "Updating Azure Firewall configuration $($AzureFirewall.name) located in $($AzureFirewall.resourcegroupname)"
+	Write-output  "[DeployAFWRules] - Updating Azure Firewall configuration $($AzureFirewall.name) located in $($AzureFirewall.resourcegroupname)"
 	$AzureFirewallConfig | Set-AzFirewall | Out-Null
 }
+Write-Output "[DeployAFWRules] - All Azure Firewall instances updated."
+Write-Output "[DeployAFWRules] - End."
+Write-output (New-TimeSpan -Start $StartDate -End (get-date))

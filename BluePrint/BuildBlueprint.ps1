@@ -40,7 +40,6 @@ Function LogMessage(
     {
         "Information" {
             Write-Output ($ProcessingTime + " - " + $Message)
-
         }
         "Warning" {
             Write-Warning ($ProcessingTime + " - " + $Message)
@@ -93,7 +92,7 @@ Function Deploy-BluePrint(
         }
         #
         # Create the Blueprint Object
-        #
+        # OK
         try {
             LogMessage -Message "[Deploy-BluePrint] - Create Blueprint $BluePrintName." -Level Information
             Import-AzBlueprintWithArtifact -Name $BluePrintName -ManagementGroupId $ManagementGroupID -InputPath $BlueprintRootPath -force
@@ -106,7 +105,7 @@ Function Deploy-BluePrint(
         }
         #
         # Parse all artefacts object composing the Blueprint (except the BluePrint definition File)
-        #
+        # OK
         Foreach ($file in (Get-ChildItem "$BlueprintRootPath\$ArtifactFolder")) {
             LogMessage -Message "[Deploy-BluePrint] - Processing BluePrint artefact $($file.name) for Blueprint $BluePrintName." -Level Information
             try {
@@ -255,7 +254,7 @@ $Savelocation = Get-Location
 $ProcessedFolders = Get-ChildItem $RolesRootFolder -Directory
 foreach($RoleRootFolder in $ProcessedFolders) {
     #
-    # Process each role
+    # Process each role $PreDeployScriptFolderName 
     #
     $ProcessedRoles +=1
     Set-location $RoleRootFolder

@@ -1,0 +1,10 @@
+Prérequis démo 
+    . .\StartAzureFirewall.ps1
+    Supprimer les règles de Firewall sur VMS
+
+Demo
+     .\DeployAFWRules.PS1
+
+Fin Demo
+    Supprimer les règles de Firewall sur VMSs
+    StopAzureFirewall.PS1
