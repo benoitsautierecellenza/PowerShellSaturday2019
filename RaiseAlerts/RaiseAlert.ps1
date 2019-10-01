@@ -43,9 +43,7 @@ Write-output "Signal Type $($WebhookBody.Data.essentials.SignalType)"
 Write-output "Monitor Condition : $($WebhookBody.Data.essentials.MonitorCondition)"
 Write-output "Monitoring Service : $($WebhookBody.Data.essentials.MonitoringService)"
 Write-output "Origin Alert ID : $($WebhookBody.Data.essentials.OriginAlertId)"
-Write-output
 Write-output "Alert Context : $($WebhookBody.Data.AlertContext)"
-Write-output
 Write-output "Action : $($WebhookBody.Data.AlertContext.authorization.Action)"
 Write-output "Action Scope : $($WebhookBody.Data.AlertContext.authorization.Scope)"
 Write-output "operationName : $($WebhookBody.Data.AlertContext.operationName)"
@@ -146,17 +144,22 @@ Write-Output "DEBUG"
                         "Microsoft.Storage/storageAccounts/write"
                         {
                             # Process only new alerts, not closed or acknwoledged
+                            Write-Output "Start Runbook AFW-ProcessServiceRules"
                             $Parameters = @{
-                            "ResourceName"=$ResourceName;
-                            "resourceGroupName"=$ResourceGroupName
-                        }                    
+                                "ResourceName" = $ResourceName;
+                                "ServiceType" = "Storage";
+                                "OperationName" = "Create";
+                                "resourceGroupName" = $ResourceGroupName;
+                        }
+                        "AutomationAccountResourceGroupName $AutomationAccountResourceGroupName"        
+                        "AutomationAccountName $AutomationAccountName"
+                        "Parameters $parameters"            
                         $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
                             -AutomationAccountName $AutomationAccountName  `
-                            -Name "Process-StorageAccount" `
+                            -Name "AFW-ProcessServiceRules" `
                             -Parameters $Parameters `
                             -Wait
                         $Job
-                        # placer ici le register
                         }
                         "Microsoft.Storage/storageAccounts/delete"
                         {

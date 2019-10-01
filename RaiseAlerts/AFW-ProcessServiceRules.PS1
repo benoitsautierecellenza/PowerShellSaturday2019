@@ -1,33 +1,29 @@
 #
-# Manage Azure Firewall Rules for Storage Accounts
+# Manage Azure Firewall Rules for Azure Services
 #
 # Version 1.0 - Initial release - Benoît SAUTIERE
-# A exécuter avant appel pour créer le paramètre $SourceAddress : [Array]$parameters = @("172.16.0.0/16", "192.168.0.0/16", "10.0.0.0/8")
-# -ResourceName "finaltest7" -ServiceType "Storage" -OperationName "Create" -SourceAddress $Parameters
-# Rendre le paramètre $SourceAddress obligatoire uniquement si Create
 # Intégrer le test du lock pour s'assurer qu'une opération n'est pas en cours
 #
 [OutputType("String")]
 Param(
     [Parameter (Mandatory=$False)]
-    [String]$ResourceName = "finaltest6",
+    [String]$ResourceName,
 
     [Parameter (Mandatory=$False)]
     [ValidateSet("Storage","KeyVault")]
-    [String]$ServiceType = "Storage",
+    [String]$ServiceType,
 
     [Parameter (Mandatory=$false)]
     [ValidateSet("Create","Delete")]
-    [String]$OperationName = "Create",
+    [String]$OperationName
 
-    [Parameter (Mandatory=$False)]
-    [Array]$SourceAddress 
 )
 #
 # Constants
 #
-[bool]$DebugMode = $true
+[bool]$DebugMode = $True
 [String]$RulePrefix = $ServiceType + "_"
+[String]$NetworkResourceGroup = "DemoAzureFirewall"
 #
 # Variables
 #
@@ -57,6 +53,19 @@ If ($DebugMode -eq $false)
     }
     Write-output "Successfully authenticated to Azure."
 }
+#
+# Parse les Subnets pour avoir la liste 
+#
+$SourceAddress = @()
+$ListeVNET = Get-AzVirtualNetwork -ResourceGroupName $NetworkResourceGroup
+ForEach ($AddressSpace in ($ListeVNET.AddressSpace.Addressprefixes))
+{
+    $SourceAddress += $AddressSpace
+}
+
+#    $SourceAddress.Add($AddressSpace)
+
+
 switch($ServiceType)
 {
     "Storage" {
@@ -73,21 +82,6 @@ switch($ServiceType)
                     SourceAddress       = $SourceAddress
                     TargetFQDN          = "$ResourceName.blob.core.windows.net", "$ResourceName.queue.core.windows.net", "$ResourceName.table.core.windows.net","$ResourceName.file.core.windows.net"
                     Description         = "Required for Blob storage service."
-                }
-            }
-            NetworkRuleCollection = @{        
-                GROUP = @{
-                    CollectionName      = "StorageAccountRules"
-                    Priority            = 1400
-                    ActionType          = "Allow"
-                 }
-                KMS = @{
-                    name                = "Storage_$ResourceName"
-                    description         = "KMS for Windows Licencing purpose"
-                    protocol            = "TCP"
-                    SourceAddress       = $SourceAddress
-                    DestinationAddress  = '23.102.135.246'
-                    DestinationPort     = 1688
                 }
             }
         }
@@ -111,13 +105,13 @@ switch($ServiceType)
         }
     }
 }
-Write-Output "[AzureFirewall] - Processing operation $OperationName for resource $ResourceName as $ServiceType resource type."
+Write-Output "[AFW-ProcessServiceRules] - Processing operation $OperationName for resource $ResourceName as $ServiceType resource type."
 #
 # Build Rule for the Storage Accounts
 # OK
 $ApplicationRuleCollectionRules = @{}
 $NetworkRuleCollectionRules = @{}
-Write-Output "[AzureFirewall] - Building new Rule From JSON definition."
+Write-Output "[AFW-ProcessServiceRules] - Building new Rule From JSON definition."
 foreach($collection in $rules.GetEnumerator()) {
     switch($collection.Name) {
         "ApplicationRuleCollection" {
@@ -129,7 +123,7 @@ foreach($collection in $rules.GetEnumerator()) {
                     #
                     # Json definition to create the Collection object
                     # 
-                    Write-Output "[AzureFirewall] - Process Azure Firewall group creation : $($ApplicationRule.Value.CollectionName)."
+                    Write-Output "[AFW-ProcessServiceRules] - Process Azure Firewall group creation : $($ApplicationRule.Value.CollectionName)."
 	                $ApplicationGroupRuleName = ($ApplicationRule.Value.CollectionName)
 	                $ApplicationGroupRulePriority = $ApplicationRule.Value.Priority
 	                $ApplicationGroupRuleAction  = $ApplicationRule.Value.ActionType
@@ -140,7 +134,7 @@ foreach($collection in $rules.GetEnumerator()) {
                     #
                     # Only process Json definition rule details if operationname is create
                     #
-                    Write-Output "[AzureFirewall] - Process Azure Firewall Application rule $($ApplicationRule.Name)."
+                    Write-Output "[AFW-ProcessServiceRules] - Process Azure Firewall Application rule $($ApplicationRule.Name)."
                     $ApplicationRuleCollectionRule = $Null
                     $ApplicationRuleCollectionRule = New-AzFirewallApplicationRule `
                         -Name $ApplicationRule.Value.name `
@@ -162,7 +156,7 @@ foreach($collection in $rules.GetEnumerator()) {
                 #
                 # Json definition to create the Collection object
                 # 
-                Write-Output "[AzureFirewall] - Process Azure Network group creation : $($NetworkRule.value.CollectionName)."
+                Write-Output "[AFW-ProcessServiceRules] - Process Azure Network group creation : $($NetworkRule.value.CollectionName)."
                 $NetworkGroupRuleName = ($NetworkRule.Value.CollectionName)
                 $NetworkGroupRulePriority = $NetworkRule.Value.Priority
                 $NetworkGroupRuleAction  = $NetworkRule.Value.ActionType
@@ -173,7 +167,7 @@ foreach($collection in $rules.GetEnumerator()) {
                         #
                         # Only process Json definition rule details if operationname is create
                         #
-                        Write-Output "[AzureFirewall] - Process Azure Firewall Network rule $($NetworkRule.Name)." 
+                        Write-Output "[AFW-ProcessServiceRules] - Process Azure Firewall Network rule $($NetworkRule.Name)." 
                         $networkRuleCollectionRule = $null
                         $networkRuleCollectionRule  = New-AzFirewallNetworkRule `
                             -Name  $networkrule.Value.name `
@@ -202,7 +196,7 @@ foreach($collection in $rules.GetEnumerator()) {
         # Process Each Azure Firewall instance found 
         # OK
         $ExistingApplicationRuleCollectionRules = @{}
-        Write-Output "[AzureFirewall] - Processing Azure Firewall $($AzureFirewall.name)"
+        Write-Output "[AFW-ProcessServiceRules] - Processing Azure Firewall $($AzureFirewall.name)"
         $AzureFirewallConfig = Get-AzFirewall -ResourceGroupName $($AzureFirewall.resourcegroupname) -Name $($AzureFirewall.name)
         #
         # Process existing Application Collection rule
@@ -211,7 +205,7 @@ foreach($collection in $rules.GetEnumerator()) {
         $testrulecollectionname = $listApplicationCollectionrulesname -contains $ApplicationGroupRuleName
         If($testrulecollectionname -eq $true)
         {
-            Write-Output "[AzureFirewall] - Existing Application rule collection named $ApplicationGroupRuleName. Will be rebuilded with existing rules."
+            Write-Output "[AFW-ProcessServiceRules] - Existing Application rule collection named $ApplicationGroupRuleName. Will be rebuilded with existing rules."
             $ExistingApplicationRules =  $AzureFirewallConfig.GetApplicationRuleCollectionByName($ApplicationGroupRuleName).rules
             ForEach($ExistingApplicationRule in $ExistingApplicationRules)
             {
@@ -248,13 +242,13 @@ foreach($collection in $rules.GetEnumerator()) {
                     Switch ($OperationName)
                     {
                         "Create" {
-                            Write-Output "[AzureFirewall] - Application Rule named $($RulePrefix + $ResourceName) already exists. No need to add it to rebuild process of Application rule collection $ApplicationGroupRuleName."
+                            Write-Output "[AFW-ProcessServiceRules] - Application Rule named $($RulePrefix + $ResourceName) already exists. No need to add it to rebuild process of Application rule collection $ApplicationGroupRuleName."
                         }
                         "Delete" {
                             #
                             # Delete mode, rule will be excluded at rebuild
                             #
-                            Write-Output "[AzureFirewall] - Application Rule named $($RulePrefix + $ResourceName) found, will be excluded from rebuild process of Application rule collection $ApplicationGroupRuleName."
+                            Write-Output "[AFW-ProcessServiceRules] - Application Rule named $($RulePrefix + $ResourceName) found, will be excluded from rebuild process of Application rule collection $ApplicationGroupRuleName."
                         }
                         Default {
                             Write-Output "ERROR"
@@ -264,7 +258,7 @@ foreach($collection in $rules.GetEnumerator()) {
             }
         }
         else {
-            Write-Output "[AzureFirewall] - Application rule collection $ApplicationGroupRuleName not yet already exists. Will be created."
+            Write-Output "[AFW-ProcessServiceRules] - Application rule collection $ApplicationGroupRuleName not yet already exists. Will be created."
         }
         #
         # Process existing network rule collections
@@ -274,7 +268,7 @@ foreach($collection in $rules.GetEnumerator()) {
         $testrulecollectionname = $listNetworkCollectionrulesname -contains $NetworkGroupRuleName
         If($testrulecollectionname -eq $true)
         {
-            Write-Output "[AzureFirewall] - Existing Network rule collection named $NetworkGroupRuleName. Will be rebuilded with existing rules."
+            Write-Output "[AFW-ProcessServiceRules] - Existing Network rule collection named $NetworkGroupRuleName. Will be rebuilded with existing rules."
             $ExistingNetworkRules =  $AzureFirewallConfig.GetNetworkRuleCollectionByName($NetworkGroupRuleName).rules
             ForEach($ExistingNetworkRule in $ExistingNetworkRules)
             {
@@ -303,13 +297,13 @@ foreach($collection in $rules.GetEnumerator()) {
                     Switch ($OperationName)
                     {
                         "Create" {
-                            Write-Output "[AzureFirewall] - Network Rule named $($RulePrefix + $ResourceName) already exists. No need to add it to rebuild process of Network rule collection $NetworkGroupRuleName."
+                            Write-Output "[AFW-ProcessServiceRules] - Network Rule named $($RulePrefix + $ResourceName) already exists. No need to add it to rebuild process of Network rule collection $NetworkGroupRuleName."
                         }
                         "Delete" {
                             #
                             # Delete mode, rule will be excluded at rebuild
                             #
-                            Write-Output "[AzureFirewall] - Network Rule named $($RulePrefix + $ResourceName) found, will be excluded from rebuild process of Network rule collection $NetworkGroupRuleName."
+                            Write-Output "[AFW-ProcessServiceRules] - Network Rule named $($RulePrefix + $ResourceName) found, will be excluded from rebuild process of Network rule collection $NetworkGroupRuleName."
                         }
                         Default {
                             Write-Output "ERROR"
@@ -320,32 +314,32 @@ foreach($collection in $rules.GetEnumerator()) {
             }   
         }
         else {
-            Write-Output "[AzureFirewall] - Network rule collection $NetworkGroupRuleName not yet already exists. Will be created."
+            Write-Output "[AFW-ProcessServiceRules] - Network rule collection $NetworkGroupRuleName not yet already exists. Will be created."
         }
         if (($AzureFirewallConfig.ApplicationRuleCollections.name) -contains $ApplicationGroupRuleName) {
             #
             # Search for existing Application Collection Rule and delete if exists
             #
-            Write-Output "[AzureFirewall] - Azure Firewall Application Collection Rule named $ApplicationGroupRuleName, will be deleted to inject new content."
+            Write-Output "[AFW-ProcessServiceRules] - Azure Firewall Application Collection Rule named $ApplicationGroupRuleName, will be deleted to inject new content."
             $AzureFirewallConfig.RemoveApplicationRuleCollectionByName($ApplicationGroupRuleName)
         }
         else {
-	        Write-Output "[AzureFirewall] - No existing Azure Firewall Application Collection Rule found to delete."
+	        Write-Output "[AFW-ProcessServiceRules] - No existing Azure Firewall Application Collection Rule found to delete."
         }
         if (($AzureFirewallConfig.NetworkRuleCollections.name) -contains $NetworkGroupRulename) {
             #
             # Search for existing Network Collection Rule and delete if exists
             #
-            Write-Output "[AzureFirewall] - Azure Firewall Network Collection Rule named $NetworkGroupRulename, will be deleted to inject new content."
+            Write-Output "[AFW-ProcessServiceRules] - Azure Firewall Network Collection Rule named $NetworkGroupRulename, will be deleted to inject new content."
             $AzureFirewallConfig.RemoveNetworkRuleCollectionByName($NetworkGroupRulename)
         }
         else {
-	        Write-Output "[AzureFirewall] - No existing Azure Firewall Network Collection Rule found to delete."
+	        Write-Output "[AFW-ProcessServiceRules] - No existing Azure Firewall Network Collection Rule found to delete."
         }
         #
         # Merge existing and new Application Collection rule into a new collection
         # OK
-        Write-Output "[AzureFirewall] - Merge existing Application rules collection with new rules."
+        Write-Output "[AFW-ProcessServiceRules] - Merge existing Application rules collection with new rules."
         $NewApplicationRuleCollectionRule = @{}
         If ($OperationName -eq "Create") {
             ForEach ($collection in $ApplicationRuleCollectionRules.GetEnumerator())
@@ -362,7 +356,7 @@ foreach($collection in $rules.GetEnumerator()) {
         #
         # Merge existing and new Network collection rule into a new collection
         # OK
-        Write-Output "[AzureFirewall] - Merge existing Network rules collection with new rules."
+        Write-Output "[AFW-ProcessServiceRules] - Merge existing Network rules collection with new rules."
         $NewNetworkRuleCollectionRule = @{}
         If ($OperationName -eq "Create") {
             ForEach ($collection in $NetworkRuleCollectionRules.GetEnumerator())
@@ -379,7 +373,7 @@ foreach($collection in $rules.GetEnumerator()) {
         # OK
         If ($NewApplicationRuleCollectionRule.count -GT 0)
         {
-            Write-Output "[AzureFirewall] - Creating Azure Firewall Application Collection Rule named $ApplicationGroupRuleName."
+            Write-Output "[AFW-ProcessServiceRules] - Creating Azure Firewall Application Collection Rule named $ApplicationGroupRuleName."
             $NewAzFwApplicationRuleCollection = New-AzFirewallApplicationRuleCollection `
                 -Name $ApplicationGroupRuleName `
                 -Priority $ApplicationGroupRulePriority `
@@ -388,7 +382,7 @@ foreach($collection in $rules.GetEnumerator()) {
             $AzureFirewallConfig.ApplicationRuleCollections += $NewAzFwApplicationRuleCollection
         }
         else {
-            Write-Output "[AzureFirewall] - No Azure Application Collection rule to create because no rule inside."
+            Write-Output "[AFW-ProcessServiceRules] - No Azure Application Collection rule to create because no rule inside."
         }
 
         #
@@ -396,7 +390,7 @@ foreach($collection in $rules.GetEnumerator()) {
         #
         If ($NewNetworkRuleCollectionRule.count -GT 0)
         {
-            Write-Output "[AzureFirewall] - Creating Azure Firewall Network Rule named $NetworkGroupRuleName."
+            Write-Output "[AFW-ProcessServiceRules] - Creating Azure Firewall Network Rule named $NetworkGroupRuleName."
             $NewAZFirewallNetworkRuleCollection = New-AzFirewallNetworkRuleCollection `
                 -Name $NetworkGroupRuleName `
                 -Priority $NetworkGroupRulePriority `
@@ -405,14 +399,14 @@ foreach($collection in $rules.GetEnumerator()) {
             $AzureFirewallConfig.NetworkRuleCollections += $NewAZFirewallNetworkRuleCollection
         }
         else {
-            Write-Output "[AzureFirewall] - No Azure Network Collection rule to create because no rule inside."
+            Write-Output "[AFW-ProcessServiceRules] - No Azure Network Collection rule to create because no rule inside."
         }
-        Write-Output "[AzureFirewall] - Updating Azure Firewall $($AzureFirewall.name)"
+        Write-Output "[AFW-ProcessServiceRules] - Updating Azure Firewall $($AzureFirewall.name)"
         $AzureFirewallConfig | Set-AzFirewall | Out-Null
-        Write-Output "[AzureFirewall] - Updated Azure Firewall $($AzureFirewall.name)"  
+        Write-Output "[AFW-ProcessServiceRules] - Updated Azure Firewall $($AzureFirewall.name)"  
     }
     $ScriptProcessingTime= $((new-timespan -Start $StartDate -End (get-date)).TotalSeconds).ToString("N2")
-    Write-output "[AzureFirewall] - All Azure Firewall updated in $ScriptProcessingTime seconds."
+    Write-output "[AFW-ProcessServiceRules] - All Azure Firewall updated in $ScriptProcessingTime seconds."
     Write-output "[OK]"   
 #}
 #catch {
