@@ -1,3 +1,4 @@
+Reporter la gestion des lock dans le script Powershell présent dans le répertoire AzureFirewall
 Gérer le nom du Runbook dans l'alerte
 Mieux gérer les multiples appels
 Mieux gérer par service
