@@ -9,14 +9,13 @@ param
 #
 # Constants
 #
-[String]$AutomationAccountName = "LabAutomation" 
-[String]$AutomationAccountResourceGroupName = "LabAutomation"
-[String]$RunbookJobCheckPeriod = 10
-[Int]$FirewallRunbookMaximumProcessionTime = 400
+$AutomationAccountName = "LabAutomation" 
+$AutomationAccountResourceGroupName = "LabAutomation"
 if ($WebhookData)
 {
     # Get the data object from WebhookData
     $WebhookBody = (ConvertFrom-Json -InputObject $WebhookData.RequestBody)
+
     # Get the info needed to identify the VM (depends on the payload schema)
     $schemaId = $WebhookBody.schemaId
     Write-output "schemaId: $schemaId" -Verbose
@@ -145,88 +144,26 @@ Write-Output "DEBUG"
                         "Microsoft.Storage/storageAccounts/write"
                         {
                             # Process only new alerts, not closed or acknwoledged
+                            Write-Output "Start Runbook AFW-ProcessServiceRules"
                             $Parameters = @{
-                                "ResourceName" = $ResourceName
-                                "ServiceType" = "Storage"
-                                "OperationName" = "Create"
-                            }            
-                            #
-                            # TOdo : Extraire le RunbookName de l'alerte
-                            #
-                            $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
-                                -AutomationAccountName $AutomationAccountName  `
-                                -Name "AFW-ProcessServiceRules" `
-                                -Parameters $Parameters 
-                            #
-                            # Wait for Azure Automation Job processing
-                            #
-                            [Bool]$ExitJobLoop_Flag = $false
-                            [DateTime]$StartDate = $JobStatus.CreationTime.UtcDateTime
-                            While ($ExitJobLoop_Flag -eq $False) {
-                                #
-                                # Get-Job Status
-                                #
-                                $JobStatus = Get-AzAutomationJob -ResourceGroupName $AutomationAccountResourceGroupName `
-                                    -AutomationAccountName $AutomationAccountName  `
-                                    -Id $job.JobId.guid
-                                #
-                                # Only cases to interrupt Runbook job loop
-                                #
-                                Write-Output "Processing Firewall rule for Storage Account $ResourceName. Status : $($JobStatus.Status)."
-                                If ((($JobStatus.Status) -eq "Completed") -or (($JobStatus.Status) -eq "Failed") -or (($JobStatus.Status) -eq "Stopped") ) {
-                                    #
-                                    # Runbook completed or failed, no need to parse more
-                                    #
-                                    $ExitJobLoop_Flag = $True
-                                }
-                                else {
-                                    #
-                                    # Runbook did not completed
-                                    #
-                                    $TimeSpan  = New-TimeSpan -Start $StartDate -End (Get-date)
-                                    Write-Output "Checking Runbook job processing time : $($TimeSpan.TotalMinutes)."
-                                    If (($TimeSpan.TotalMinutes) -gt $FirewallRunbookMaximumProcessionTime) {
-                                        #
-                                        # Exit also if Runbook execution time is too long
-                                        #
-                                        $ExitJobLoop_Flag = $True
-                                        Write-Warning "Runbook AFW-ProcessServiceRules execution time is above $FirewallRunbookMaximumProcessionTime minutes. Killing job."
-                                        Stop-AzAutomationJob -ResourceGroupName $AutomationAccountResourceGroupName `
-                                            -AutomationAccountName $AutomationAccountName `
-                                            -Id $job.JobId.guid
-                                    }
-                                    Start-Sleep -Seconds $RunbookJobCheckPeriod                                    
-                                }
-                            } # End of Loop
-                            Write-output "Exited Runbook Job check loop."
-                            If (($JobStatus.Status) -eq "Completed")
-                            {
-                                #
-                                # It's not becase job status is completed that runbook execution was OK
-                                #
-                                $JobOutput = Get-AzAutomationJobOutput  -ResourceGroupName $AutomationAccountResourceGroupName `
-                                    -AutomationAccountName $AutomationAccountName  `
-                                    -Id $job.JobId.guid `
-                                    -Stream Output
-                                    If ((($JobOutput | select-Object -Last 1).Summary) -eq "[OK]") {
-                                        Write-Output "Azure Firewall rule successfully implemented for resource $ResourceName."
-                                }
-                            }
-                            else {
-                                $JobOutput = Get-AzAutomationJobOutput  -ResourceGroupName $AutomationAccountResourceGroupName `
-                                    -AutomationAccountName $AutomationAccountName  `
-                                    -Id $job.JobId.guid `
-                                    -Stream Output
-                                Write-Output "Azure Firewall rule not succesfully implemented for resource $ResourceName. Runbook Error : $(($JobOutput | select-Object -Last 1).Summary)."                                    
-                            }
+                                "ResourceName" = $ResourceName;
+                                "ServiceType" = "Storage";
+                                "OperationName" = "Create";
+                                "resourceGroupName" = $ResourceGroupName;
+                        }
+                        "AutomationAccountResourceGroupName $AutomationAccountResourceGroupName"        
+                        "AutomationAccountName $AutomationAccountName"
+                        "Parameters $parameters"            
+                        $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
+                            -AutomationAccountName $AutomationAccountName  `
+                            -Name "AFW-ProcessServiceRules" `
+                            -Parameters $Parameters `
+                            -Wait
+                        $Job
                         }
                         "Microsoft.Storage/storageAccounts/delete"
                         {
-                            $Parameters = @{
-                                "ResourceName" = $ResourceName
-                                "ServiceType" = "Storage"
-                                "OperationName" = "Delete"
-                            }            
+                            "TO INCLUDE"
                         }                    
                     } 
                 }
@@ -237,12 +174,19 @@ Write-Output "DEBUG"
                 Write-Output "resourceName: $ResourceName" 
                 Write-Output "resourceGroupName: $ResourceGroupName" 
                 Write-Output "subscriptionId: $SubId" 
-
                 $Parameters = @{
-                    "ResourceName" = $ResourceName
-                    "ServiceType" = "Storage"
-                    "OperationName" = "Create"
-                }       
+                    "ResourceName"=$ResourceName;
+                    "resourceGroupName"=$ResourceGroupName
+                }
+        # DEBUG MODE
+                $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
+                    -AutomationAccountName $AutomationAccountName  `
+                    -Name "Process-KeyVault" `
+                    -Parameters $Parameters `
+                    -Wait
+                $Job
+        # DEBUG MODE
+                    # Process Job At end to close Alert or not
             }
         }         
     }

@@ -2,7 +2,7 @@
 # Manage Azure Firewall Rules for Azure Services
 #
 # Version 1.0 - Initial release - Benoît SAUTIERE
-# Intégrer le test du lock pour s'assurer qu'une opération n'est pas en cours
+#                               - Storage and KeyVault
 #
 [OutputType("String")]
 Param(
@@ -16,7 +16,6 @@ Param(
     [Parameter (Mandatory=$false)]
     [ValidateSet("Create","Delete")]
     [String]$OperationName
-
 )
 #
 # Constants
@@ -24,6 +23,9 @@ Param(
 [bool]$DebugMode = $True
 [String]$RulePrefix = $ServiceType + "_"
 [String]$NetworkResourceGroup = "DemoAzureFirewall"
+[Int]$LockWaitPeriod = 10
+[String]$LockName = "ProcessServiceRules"
+[String]$LockNotes = "Instance Locked by Runbook $LockName."
 #
 # Variables
 #
@@ -36,22 +38,24 @@ If ($DebugMode -eq $false)
     $connectionName = "AzureRunAsConnection"
     try {
         $servicePrincipalConnection=Get-AutomationConnection -Name $connectionName                    
-        Write-output "Logging in to Azure..."
+        Write-output "[AFW-ProcessServiceRules] - Logging in to Azure..."
         Connect-AzAccount -ServicePrincipal -TenantId $servicePrincipalConnection.TenantId `
             -ApplicationId $servicePrincipalConnection.ApplicationId `
             -CertificateThumbprint $servicePrincipalConnection.CertificateThumbprint 
     }
     catch {
         if (!$servicePrincipalConnection)   {
-            $ErrorMessage = "Connection $connectionName not found."
+            $ErrorMessage = "[AFW-ProcessServiceRules] - Connection $connectionName not found."
+            Write-Output "[ERROR]"
             throw $ErrorMessage
         } 
         else {
             Write-Error -Message $_.Exception
+            Write-Output "[ERROR]"
             throw $_.Exception
         }
     }
-    Write-output "Successfully authenticated to Azure."
+    Write-output "[AFW-ProcessServiceRules] - Successfully authenticated to Azure."
 }
 #
 # Parse les Subnets pour avoir la liste 
@@ -62,10 +66,7 @@ ForEach ($AddressSpace in ($ListeVNET.AddressSpace.Addressprefixes))
 {
     $SourceAddress += $AddressSpace
 }
-
 #    $SourceAddress.Add($AddressSpace)
-
-
 switch($ServiceType)
 {
     "Storage" {
@@ -183,9 +184,11 @@ foreach($collection in $rules.GetEnumerator()) {
 	    }            
     }
 }
+Write-Output "[AFW-ProcessServiceRules] - New Rule created From JSON definition."
 #
 # Build Azure Firewall collections for the new object to declare in Azure Firewall Configuration
 # OK
+$FirewallLock = $null
 #try {
     #
     # Build new Azure Firewall configuration
@@ -195,8 +198,44 @@ foreach($collection in $rules.GetEnumerator()) {
         #
         # Process Each Azure Firewall instance found 
         # OK
+        Write-Output "[AFW-ProcessServiceRules] - Processing Azure Firewall $($AzureFirewall.name)."
+        #
+        # Check if Azure Firewall instance is locked on Delete or not
+        #
+        $lock = Get-AzResourceLock -ResourceGroupName $AzureFirewall.resourcegroupname -ResourceName $AzureFirewall.Name -ResourceType Microsoft.Network/azureFirewalls
+        If ([string]::IsNullOrEmpty($lock) -eq $False) 
+        {
+            Write-Output "[AFW-ProcessServiceRules] - Azure Firewall $($AzureFirewall.name) is in locked mode. Wait until unlock."
+            [DateTime]$StartLockDate = Get-Date
+            [Bool]$LockExit_Flag = $False
+            do {
+                #
+                # Wait until resource is not longer locked
+                #
+                Start-Sleep -Seconds $LockWaitPeriod
+                $TimeSpan = New-TimeSpan $StartLockDate -end (get-date)
+                $LockDuration = "{0:N0}" -F ($TimeSpan.TotalSeconds)
+                Write-Output "[AFW-ProcessServiceRules] - Waiting for Azure Firewall $($AzureFirewall.name) lock removal since $LockDuration seconds."
+                $lock = Get-AzResourceLock -ResourceGroupName $AzureFirewall.resourcegroupname -ResourceName $AzureFirewall.Name -ResourceType Microsoft.Network/azureFirewalls
+                If ([string]::IsNullOrEmpty($lock) -eq $True) {
+                    $LockExit_Flag= $True
+                    Write-Output "[AFW-ProcessServiceRules] Azure Firewall $($AzureFirewall.name) is no longer locked."
+                }     
+            } Until ($LockExit_Flag -eq $true)
+        }
+        else {
+            #
+            # Azure Firewall instance is not locked, ressources can be updated.
+            # OK
+            Write-Output "[AFW-ProcessServiceRules] - Azure Firewall $($AzureFirewall.name) is not locked."
+        }
+        #
+        # Now we can Set a lock on Azure Firewall to lock any concurrent update
+        #
+        Write-Output "[AFW-ProcessServiceRules] - Azure Firewall $($AzureFirewall.name) locking for update."
+        $FirewallLock = New-AzResourceLock -ResourceGroupName $AzureFirewall.resourcegroupname -ResourceName $AzureFirewall.Name -ResourceType Microsoft.Network/azureFirewalls -LockName $LockName -LockLevel CanNotDelete -LockNotes $LockNotes -Force 
+        Write-Output "[AFW-ProcessServiceRules] - Azure Firewall $($AzureFirewall.name) locked for update."
         $ExistingApplicationRuleCollectionRules = @{}
-        Write-Output "[AFW-ProcessServiceRules] - Processing Azure Firewall $($AzureFirewall.name)"
         $AzureFirewallConfig = Get-AzFirewall -ResourceGroupName $($AzureFirewall.resourcegroupname) -Name $($AzureFirewall.name)
         #
         # Process existing Application Collection rule
@@ -251,7 +290,7 @@ foreach($collection in $rules.GetEnumerator()) {
                             Write-Output "[AFW-ProcessServiceRules] - Application Rule named $($RulePrefix + $ResourceName) found, will be excluded from rebuild process of Application rule collection $ApplicationGroupRuleName."
                         }
                         Default {
-                            Write-Output "ERROR"
+                            Write-Output "[ERROR]"
                         }
                     }
                 }
@@ -268,7 +307,7 @@ foreach($collection in $rules.GetEnumerator()) {
         $testrulecollectionname = $listNetworkCollectionrulesname -contains $NetworkGroupRuleName
         If($testrulecollectionname -eq $true)
         {
-            Write-Output "[AFW-ProcessServiceRules] - Existing Network rule collection named $NetworkGroupRuleName. Will be rebuilded with existing rules."
+            Write-Output "[AFW-ProcessServiceRules] - Existing Network rule collection named $NetworkGroupRuleName. Will be rebuilded with existing rules."     
             $ExistingNetworkRules =  $AzureFirewallConfig.GetNetworkRuleCollectionByName($NetworkGroupRuleName).rules
             ForEach($ExistingNetworkRule in $ExistingNetworkRules)
             {
@@ -306,7 +345,7 @@ foreach($collection in $rules.GetEnumerator()) {
                             Write-Output "[AFW-ProcessServiceRules] - Network Rule named $($RulePrefix + $ResourceName) found, will be excluded from rebuild process of Network rule collection $NetworkGroupRuleName."
                         }
                         Default {
-                            Write-Output "ERROR"
+                            Write-Output "[ERROR]"
                         }
                     }
                 }
@@ -351,8 +390,6 @@ foreach($collection in $rules.GetEnumerator()) {
         {
             $NewApplicationRuleCollectionRule.Add($collection.Name, $collection.value)
         }
-
-
         #
         # Merge existing and new Network collection rule into a new collection
         # OK
@@ -404,11 +441,21 @@ foreach($collection in $rules.GetEnumerator()) {
         Write-Output "[AFW-ProcessServiceRules] - Updating Azure Firewall $($AzureFirewall.name)"
         $AzureFirewallConfig | Set-AzFirewall | Out-Null
         Write-Output "[AFW-ProcessServiceRules] - Updated Azure Firewall $($AzureFirewall.name)"  
+
+        Write-Output "[AFW-ProcessServiceRules] - Unlocking Azure Firewall $($AzureFirewall.name)." 
+        Remove-AzResourceLock -LockId $FirewallLock.LockId -Force | Out-Null
+        $FirewallLock = $null
+        Write-Output "[AFW-ProcessServiceRules] - Azure Firewall $($AzureFirewall.name) no longer locked."
     }
     $ScriptProcessingTime= $((new-timespan -Start $StartDate -End (get-date)).TotalSeconds).ToString("N2")
     Write-output "[AFW-ProcessServiceRules] - All Azure Firewall updated in $ScriptProcessingTime seconds."
     Write-output "[OK]"   
 #}
 #catch {
-#    Write-Output "[ERROR] - $($_.Exception)"
+#    If ($FirewallLock -ne $null)
+#    {
+    #    Remove-AzResourceLock -LockId $FirewallLock.LockId -Force | Out-Null
+#    }
+#    Write-Output "[ERROR] - $($_.Exception)."
+#    Write-Output "[ERROR]"
 #}

@@ -1,3 +1,4 @@
-
-Comprendre pourquoi Start-AzAutomationRunbook plante dans Handle-Alert
-    Certainement un bug sur les paramètres
+Gérer le nom du Runbook dans l'alerte
+Mieux gérer les multiples appels
+Mieux gérer par service
+Dans RaiseAlert, filtrer par le nom de l'alerte pour éviter le looping avec d'autres Runbooks
