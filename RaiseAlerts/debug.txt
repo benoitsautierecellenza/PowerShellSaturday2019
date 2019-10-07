@@ -1,5 +1,9 @@
-Reporter la gestion des lock dans le script Powershell présent dans le répertoire AzureFirewall
+Storage : Semble OK pour Create & Delete
+KeyVault : Valider déclenchement Alertr KeyVault
+KeyVault : Voir si le process de création fonctionne, idem pour delete
+
 Gérer le nom du Runbook dans l'alerte
 Mieux gérer les multiples appels
+
 Mieux gérer par service
 Dans RaiseAlert, filtrer par le nom de l'alerte pour éviter le looping avec d'autres Runbooks

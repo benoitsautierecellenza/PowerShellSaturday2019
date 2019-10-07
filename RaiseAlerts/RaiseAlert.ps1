@@ -8,7 +8,6 @@ param
 #$ErrorActionPreference = "stop"
 #
 # Constants
-#
 [String]$AutomationAccountName = "LabAutomation" 
 [String]$AutomationAccountResourceGroupName = "LabAutomation"
 [String]$RunbookJobCheckPeriod = 10
@@ -110,34 +109,28 @@ Write-Output "DEBUG"
             }
         }
         Write-output "Successfully authenticated to Azure."
-#
-# Intégrer ici le type d'opératon
-#
-Write-Output "DEBUG"
-Write-Output "APPID AZACCOUNT $($servicePrincipalConnection.ApplicationId)"
-Write-Output "DEBUG"
-#
-# a22f789d-7f7a-499b-9059-f6a65e45402f filtrer le Caller, ignorer ceux concernant l'identité Automation
-#
-# e9ab63ba-8fcd-488e-815e-5a9d7c62e425 si on trouve l'appID alors c'est goot
-
+        #
+        # Checking Webhook Context (If Caller is Automation, do not create infinite loop)
+        #
+        $AlertCallerID = $($WebhookBody.Data.AlertContext.caller)
+        $CurrentContext = (Get-AzContext).account.id
+        Write-Output "AlertCallerID : $AlertCallerID"
+        Write-Output "CurrentContext : $CurrentContext"
+        If ($AlertCallerID -eq $CurrentContext) {
+            Write-Output "SAME CONTEXT, AVOID LOOP"
+            Exit
+        }
+        else {
+            Write-Output "Not same context, process"
+        }
+        #
+        # Prepare AFW-ProcessServiceRules runbook parameters based on ResourceType
+        #
         Switch($ResourceType)
         {
-            "Microsoft.Compute/virtualMachines"
-            {
-                # This is an Resource Manager VM
-                Write-output "This is a Virtual machine related Event"
-
-            }
             "Microsoft.Storage/storageAccounts"
             {
-                # This is an Resource Manager VM
                 Write-output "This is a Storage Account event"
-                Write-output "operationName : $($WebhookBody.Data.AlertContext.operationName)"
-                Write-Output "resourceType: $ResourceType" 
-                Write-Output "resourceName: $ResourceName" 
-                Write-Output "resourceGroupName: $ResourceGroupName" 
-                Write-Output "subscriptionId: $SubId" 
                 If ($($WebhookBody.Data.essentials.MonitorCondition) -eq "Fired")
                 {
                     Switch ($($WebhookBody.Data.AlertContext.operationName))
@@ -150,75 +143,6 @@ Write-Output "DEBUG"
                                 "ServiceType" = "Storage"
                                 "OperationName" = "Create"
                             }            
-                            #
-                            # TOdo : Extraire le RunbookName de l'alerte
-                            #
-                            $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
-                                -AutomationAccountName $AutomationAccountName  `
-                                -Name "AFW-ProcessServiceRules" `
-                                -Parameters $Parameters 
-                            #
-                            # Wait for Azure Automation Job processing
-                            #
-                            [Bool]$ExitJobLoop_Flag = $false
-                            [DateTime]$StartDate = $JobStatus.CreationTime.UtcDateTime
-                            While ($ExitJobLoop_Flag -eq $False) {
-                                #
-                                # Get-Job Status
-                                #
-                                $JobStatus = Get-AzAutomationJob -ResourceGroupName $AutomationAccountResourceGroupName `
-                                    -AutomationAccountName $AutomationAccountName  `
-                                    -Id $job.JobId.guid
-                                #
-                                # Only cases to interrupt Runbook job loop
-                                #
-                                Write-Output "Processing Firewall rule for Storage Account $ResourceName. Status : $($JobStatus.Status)."
-                                If ((($JobStatus.Status) -eq "Completed") -or (($JobStatus.Status) -eq "Failed") -or (($JobStatus.Status) -eq "Stopped") ) {
-                                    #
-                                    # Runbook completed or failed, no need to parse more
-                                    #
-                                    $ExitJobLoop_Flag = $True
-                                }
-                                else {
-                                    #
-                                    # Runbook did not completed
-                                    #
-                                    $TimeSpan  = New-TimeSpan -Start $StartDate -End (Get-date)
-                                    Write-Output "Checking Runbook job processing time : $($TimeSpan.TotalMinutes)."
-                                    If (($TimeSpan.TotalMinutes) -gt $FirewallRunbookMaximumProcessionTime) {
-                                        #
-                                        # Exit also if Runbook execution time is too long
-                                        #
-                                        $ExitJobLoop_Flag = $True
-                                        Write-Warning "Runbook AFW-ProcessServiceRules execution time is above $FirewallRunbookMaximumProcessionTime minutes. Killing job."
-                                        Stop-AzAutomationJob -ResourceGroupName $AutomationAccountResourceGroupName `
-                                            -AutomationAccountName $AutomationAccountName `
-                                            -Id $job.JobId.guid
-                                    }
-                                    Start-Sleep -Seconds $RunbookJobCheckPeriod                                    
-                                }
-                            } # End of Loop
-                            Write-output "Exited Runbook Job check loop."
-                            If (($JobStatus.Status) -eq "Completed")
-                            {
-                                #
-                                # It's not becase job status is completed that runbook execution was OK
-                                #
-                                $JobOutput = Get-AzAutomationJobOutput  -ResourceGroupName $AutomationAccountResourceGroupName `
-                                    -AutomationAccountName $AutomationAccountName  `
-                                    -Id $job.JobId.guid `
-                                    -Stream Output
-                                    If ((($JobOutput | select-Object -Last 1).Summary) -eq "[OK]") {
-                                        Write-Output "Azure Firewall rule successfully implemented for resource $ResourceName."
-                                }
-                            }
-                            else {
-                                $JobOutput = Get-AzAutomationJobOutput  -ResourceGroupName $AutomationAccountResourceGroupName `
-                                    -AutomationAccountName $AutomationAccountName  `
-                                    -Id $job.JobId.guid `
-                                    -Stream Output
-                                Write-Output "Azure Firewall rule not succesfully implemented for resource $ResourceName. Runbook Error : $(($JobOutput | select-Object -Last 1).Summary)."                                    
-                            }
                         }
                         "Microsoft.Storage/storageAccounts/delete"
                         {
@@ -231,18 +155,105 @@ Write-Output "DEBUG"
                     } 
                 }
             }
-            "microsoft.keyvault/vaults" {
-                Write-Output "This a KeyVault related Event"
-                Write-Output "resourceType: $ResourceType" 
-                Write-Output "resourceName: $ResourceName" 
-                Write-Output "resourceGroupName: $ResourceGroupName" 
-                Write-Output "subscriptionId: $SubId" 
-
-                $Parameters = @{
-                    "ResourceName" = $ResourceName
-                    "ServiceType" = "Storage"
-                    "OperationName" = "Create"
-                }       
+            "Microsoft.Keyvault/Vaults" {
+                Write-Output "This a KeyVault related Event."
+                If ($($WebhookBody.Data.essentials.MonitorCondition) -eq "Fired")
+                {
+                    Switch ($($WebhookBody.Data.AlertContext.operationName))
+                    {
+                        "Microsoft.Storage/storageAccounts/write"
+                        {
+                            # Process only new alerts, not closed or acknwoledged
+                            $Parameters = @{
+                                "ResourceName" = $ResourceName
+                                "ServiceType" = "KeyVault"
+                                "OperationName" = "Create"
+                            }            
+                        }
+                        "Microsoft.Storage/storageAccounts/delete"
+                        {
+                            $Parameters = @{
+                                "ResourceName" = $ResourceName
+                                "ServiceType" = "KeyVault"
+                                "OperationName" = "Delete"
+                            }            
+                        }                    
+                    } 
+                }
+            }
+            default {
+                Write-Output "Resource $ResourceType is not managed by Runbook"
+                $Parameters = $Null
+            }
+        }
+        #
+        # Call Runbook
+        #
+        If ($Parameters -ne $null) {
+            $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
+                -AutomationAccountName $AutomationAccountName  `
+                -Name "AFW-ProcessServiceRules" `
+                -Parameters $Parameters 
+            #
+            # Wait for Azure Automation Job processing
+            # OK
+            [Bool]$ExitJobLoop_Flag = $false
+            [DateTime]$StartDate = $JobStatus.CreationTime.UtcDateTime
+            While ($ExitJobLoop_Flag -eq $False) {
+                #
+                # Get-Job Status
+                #
+                $JobStatus = Get-AzAutomationJob -ResourceGroupName $AutomationAccountResourceGroupName `
+                    -AutomationAccountName $AutomationAccountName  `
+                    -Id $job.JobId.guid
+                #
+                # Only cases to interrupt Runbook job loop
+                #
+                Write-Output "Processing Firewall rule for Storage Account $ResourceName. Status : $($JobStatus.Status)."
+                If ((($JobStatus.Status) -eq "Completed") -or (($JobStatus.Status) -eq "Failed") -or (($JobStatus.Status) -eq "Stopped") ) {
+                    #
+                    # Runbook completed or failed, no need to parse more
+                    #
+                    $ExitJobLoop_Flag = $True
+                }
+                else {
+                    #
+                    # Runbook did not completed
+                    #
+                    $TimeSpan  = New-TimeSpan -Start $StartDate -End (Get-date)
+                    Write-Output "Checking Runbook job processing time : $($TimeSpan.TotalMinutes)."
+                    If (($TimeSpan.TotalMinutes) -gt $FirewallRunbookMaximumProcessionTime) {
+                        #
+                        # Exit also if Runbook execution time is too long
+                        #
+                        $ExitJobLoop_Flag = $True
+                        Write-Warning "Runbook AFW-ProcessServiceRules execution time is above $FirewallRunbookMaximumProcessionTime minutes. Killing job."
+                        Stop-AzAutomationJob -ResourceGroupName $AutomationAccountResourceGroupName `
+                            -AutomationAccountName $AutomationAccountName `
+                            -Id $job.JobId.guid
+                    }
+                    Start-Sleep -Seconds $RunbookJobCheckPeriod                                    
+                }
+            } # End of Loop
+            Write-output "Exited Runbook Job check loop."
+            If (($JobStatus.Status) -eq "Completed") {
+                #
+                # It's not becase job status is completed that runbook execution was OK
+                #
+                $JobOutput = Get-AzAutomationJobOutput  -ResourceGroupName $AutomationAccountResourceGroupName `
+                    -AutomationAccountName $AutomationAccountName  `
+                    -Id $job.JobId.guid `
+                    -Stream Output
+                    If ((($JobOutput | select-Object -Last 1).Summary) -eq "[OK]") {
+                        Write-Output "Azure Firewall rule successfully implemented for resource $ResourceName."
+                }
+            }
+            else {
+                $JobOutput = Get-AzAutomationJobOutput  -ResourceGroupName $AutomationAccountResourceGroupName `
+                    -AutomationAccountName $AutomationAccountName  `
+                    -Id $job.JobId.guid `
+                    -Stream Output
+                Write-Output "Azure Firewall rule not succesfully implemented for resource $ResourceName. Runbook Error : $(($JobOutput | select-Object -Last 1).Summary)."                                    
             }
         }         
     }
