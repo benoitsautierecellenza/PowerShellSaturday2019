@@ -1,9 +1,11 @@
 Storage : Semble OK pour Create & Delete
-KeyVault : Valider déclenchement Alertr KeyVault
-KeyVault : Voir si le process de création fonctionne, idem pour delete
+KeyVault : Semble OK pour Create & Delete
 
 Gérer le nom du Runbook dans l'alerte
 Mieux gérer les multiples appels
+    Semble mieux si : 
+        Event level : informational
+        Status succeeded
 
 Mieux gérer par service
 Dans RaiseAlert, filtrer par le nom de l'alerte pour éviter le looping avec d'autres Runbooks

@@ -1,3 +1,6 @@
+#
+# Todo : Close related alert
+#
 [OutputType("PSAzureOperationResponse")]
 param
 (
@@ -151,7 +154,10 @@ Write-Output "DEBUG"
                                 "ServiceType" = "Storage"
                                 "OperationName" = "Delete"
                             }            
-                        }                    
+                        } 
+                        default {
+                            Write-output "Operation ($($WebhookBody.Data.AlertContext.operationName)) not managed by Runbook."
+                        }                                       
                     } 
                 }
             }
@@ -161,22 +167,28 @@ Write-Output "DEBUG"
                 {
                     Switch ($($WebhookBody.Data.AlertContext.operationName))
                     {
-                        "Microsoft.Storage/storageAccounts/write"
+                        "Microsoft.KeyVault/vaults/write"
                         {
                             # Process only new alerts, not closed or acknwoledged
                             $Parameters = @{
                                 "ResourceName" = $ResourceName
                                 "ServiceType" = "KeyVault"
                                 "OperationName" = "Create"
-                            }            
+                            }  
+                            #
+                            # Intégrer le call du Runbook de remédiation ici
+                            #          
                         }
-                        "Microsoft.Storage/storageAccounts/delete"
+                        "Microsoft.KeyVault/vaults/delete"
                         {
                             $Parameters = @{
                                 "ResourceName" = $ResourceName
                                 "ServiceType" = "KeyVault"
                                 "OperationName" = "Delete"
                             }            
+                        }
+                        default {
+                            Write-output "Operation ($($WebhookBody.Data.AlertContext.operationName)) not managed by Runbook."
                         }                    
                     } 
                 }
@@ -188,7 +200,7 @@ Write-Output "DEBUG"
         }
         #
         # Call Runbook
-        #
+        # OK
         If ($Parameters -ne $null) {
             $Job = Start-AzAutomationRunbook -ResourceGroupName $AutomationAccountResourceGroupName `
                 -AutomationAccountName $AutomationAccountName  `
@@ -238,7 +250,7 @@ Write-Output "DEBUG"
             Write-output "Exited Runbook Job check loop."
             If (($JobStatus.Status) -eq "Completed") {
                 #
-                # It's not becase job status is completed that runbook execution was OK
+                # It's not becasue job status is completed that runbook execution was OK
                 #
                 $JobOutput = Get-AzAutomationJobOutput  -ResourceGroupName $AutomationAccountResourceGroupName `
                     -AutomationAccountName $AutomationAccountName  `
@@ -247,6 +259,9 @@ Write-Output "DEBUG"
                     If ((($JobOutput | select-Object -Last 1).Summary) -eq "[OK]") {
                         Write-Output "Azure Firewall rule successfully implemented for resource $ResourceName."
                 }
+                #
+                # Todo : Close Related Alert
+                #
             }
             else {
                 $JobOutput = Get-AzAutomationJobOutput  -ResourceGroupName $AutomationAccountResourceGroupName `

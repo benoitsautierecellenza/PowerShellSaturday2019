@@ -215,6 +215,12 @@ Function Deploy-RoleScripts
     Set-location -Path $savelocation
 }
 
+Function CleanBluePrint()
+{
+    #
+    # https://github.com/MicrosoftDocs/azure-docs/blob/master/includes/azure-policy-limits.md Purger les Blueprints non assignés sur un management group (et en dessous)
+    #
+}
 
 Function Deploy()
 {

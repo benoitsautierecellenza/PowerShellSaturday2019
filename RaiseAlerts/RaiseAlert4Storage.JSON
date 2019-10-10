@@ -22,7 +22,7 @@
     }
   },
   "variables": {
-    "activityLogAlertEnabled" : true    
+    "activityLogAlertEnabled" : false    
   },
   "resources": [   
     {

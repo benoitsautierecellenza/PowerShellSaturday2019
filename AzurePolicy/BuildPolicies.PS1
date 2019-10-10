@@ -2,6 +2,10 @@
 # Update existing policy assignments 
 #
 
+#
+# Todo : https://github.com/MicrosoftDocs/azure-docs/blob/master/includes/azure-policy-limits.md Fonction de cleanup des policy non utilisées sur un Management Group
+#
+
 Param(
     [Parameter(Mandatory=$True)]
     [ValidateNotnullorEmpty()]

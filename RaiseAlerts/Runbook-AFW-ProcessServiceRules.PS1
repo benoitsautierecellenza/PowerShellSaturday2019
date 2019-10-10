@@ -6,14 +6,14 @@
 #
 [OutputType("String")]
 Param(
-    [Parameter (Mandatory=$False)]
+    [Parameter (Mandatory=$True)]
     [String]$ResourceName,
 
-    [Parameter (Mandatory=$False)]
+    [Parameter (Mandatory=$True)]
     [ValidateSet("Storage","KeyVault")]
     [String]$ServiceType,
 
-    [Parameter (Mandatory=$false)]
+    [Parameter (Mandatory=$True)]
     [ValidateSet("Create","Delete")]
     [String]$OperationName
 )
