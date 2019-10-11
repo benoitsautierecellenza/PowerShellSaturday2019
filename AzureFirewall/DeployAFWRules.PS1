@@ -11,7 +11,7 @@
 [DateTime]$StartDate = Get-Date
 # Lock Feature
 [Int]$LockWaitPeriod = 10
-[String]$LockName = "ProcessServiceRules"
+[String]$LockName = "DeployAFWRules"
 [String]$LockNotes = "Instance Locked by Runbook $LockName."
 #
 # Get Log Analytics OMS Workspace ID (required in OMS Agent firewall rules)
@@ -236,7 +236,6 @@ ForeAch ($AzureFirewall in $AzureFirewallList) {
     #
     # Process Each Azure Firewall instance found 
 	#
-
 	$lock = Get-AzResourceLock -ResourceGroupName $AzureFirewall.resourcegroupname -ResourceName $AzureFirewall.Name -ResourceType Microsoft.Network/azureFirewalls
 	If ([string]::IsNullOrEmpty($lock) -eq $False) 
 	{

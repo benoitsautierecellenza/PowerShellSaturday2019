@@ -33,19 +33,15 @@ Get-AzAutomationJob -ResourceGroupname LabAutomation -AutomationAccount LabAutom
 Get-AzAutomationJob -ResourceGroupname LabAutomation -AutomationAccount LabAutomation  -Status Running
 #
 # Demo n°3 : Déclencher la création d'un KeyVault
-# In Progress
-[String]$resourceGroupName = "DemoKeyVault"
-[string]$KeyVaultName = "key" + -join ((97..122) | Get-Random -Count 13 | % {[char]$_})
-[String]$Region = "WestEurope"
-[String]$KeyVaultSKU = "Standard"
-New-AzKeyVault -ResourceGroupName $resourceGroupName `
-    -Name $KeyVaultName `
-    -Location $region `
-    -Sku $KeyVaultSKU     
-#
-# Constater les jobs
-#
-Get-AzAutomationJob -ResourceGroupname LabAutomation -AutomationAccount LabAutomation -RunbookName Handle-Alert -Status Queued
+# Inutile car idem suivante
+#[String]$resourceGroupName = "DemoKeyVault"
+#[string]$KeyVaultName = "key" + -join ((97..122) | Get-Random -Count 13 | % {[char]$_})
+#[String]$Region = "WestEurope"
+#[String]$KeyVaultSKU = "Standard"
+#New-AzKeyVault -ResourceGroupName $resourceGroupName `
+#    -Name $KeyVaultName `
+#    -Location $region `
+#    -Sku $KeyVaultSKU     
 #
 # Demo KeyVault With Policy en Powershell (pour montrer l'échec)
 # OK
@@ -94,5 +90,3 @@ New-AzResourceGroupDeployment -Name $DeploymentName `
     -enabledForDeployment $true `
     -enabledForTemplateDeployment $true `
     -enabledForDiskEncryption $true 
-
-

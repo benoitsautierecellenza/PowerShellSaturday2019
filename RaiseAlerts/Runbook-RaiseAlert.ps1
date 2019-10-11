@@ -35,23 +35,23 @@ if ($WebhookData)
 #
 # Cas de mes alertes nouvelles génération
 #
-Write-Output "DEBUG"
-Write-output "azureMonitorCommonAlertSchema"
-Write-output $WebhookBody
-Write-output "Essentials $($WebhookBody.Data.essentials)"
-Write-output "AlertID $($WebhookBody.Data.essentials.alertid)"
-Write-output "AlertRule $($WebhookBody.Data.essentials.alertrule)"
-Write-output "Severity $($WebhookBody.Data.essentials.severity)"
-Write-output "Signal Type $($WebhookBody.Data.essentials.SignalType)"
-Write-output "Monitor Condition : $($WebhookBody.Data.essentials.MonitorCondition)"
-Write-output "Monitoring Service : $($WebhookBody.Data.essentials.MonitoringService)"
-Write-output "Origin Alert ID : $($WebhookBody.Data.essentials.OriginAlertId)"
-Write-output "Alert Context : $($WebhookBody.Data.AlertContext)"
-Write-output "Action : $($WebhookBody.Data.AlertContext.authorization.Action)"
-Write-output "Action Scope : $($WebhookBody.Data.AlertContext.authorization.Scope)"
-Write-output "operationName : $($WebhookBody.Data.AlertContext.operationName)"
-Write-output "APPID : $($WebhookBody.Data.AlertContext.caller)" 
-Write-Output "DEBUG"
+#Write-Output "DEBUG"
+#Write-output "azureMonitorCommonAlertSchema"
+#Write-output $WebhookBody
+#Write-output "Essentials $($WebhookBody.Data.essentials)"
+#Write-output "AlertID $($WebhookBody.Data.essentials.alertid)"
+#Write-output "AlertRule $($WebhookBody.Data.essentials.alertrule)"
+#Write-output "Severity $($WebhookBody.Data.essentials.severity)"
+#Write-output "Signal Type $($WebhookBody.Data.essentials.SignalType)"
+#Write-output "Monitor Condition : $($WebhookBody.Data.essentials.MonitorCondition)"
+#Write-output "Monitoring Service : $($WebhookBody.Data.essentials.MonitoringService)"
+#Write-output "Origin Alert ID : $($WebhookBody.Data.essentials.OriginAlertId)"
+#Write-output "Alert Context : $($WebhookBody.Data.AlertContext)"
+#Write-output "Action : $($WebhookBody.Data.AlertContext.authorization.Action)"
+#Write-output "Action Scope : $($WebhookBody.Data.AlertContext.authorization.Scope)"
+#Write-output "operationName : $($WebhookBody.Data.AlertContext.operationName)"
+#Write-output "APPID : $($WebhookBody.Data.AlertContext.caller)" 
+#Write-Output "DEBUG"
 
     }
     elseif ($schemaId -eq "AzureMonitorMetricAlert") {
@@ -221,7 +221,7 @@ Write-Output "DEBUG"
                 #
                 # Only cases to interrupt Runbook job loop
                 #
-                Write-Output "Processing Firewall rule for Storage Account $ResourceName. Status : $($JobStatus.Status)."
+                Write-Output "Processing Firewall rule for resource $ResourceName. Status : $(($JobStatus.Status))."
                 If ((($JobStatus.Status) -eq "Completed") -or (($JobStatus.Status) -eq "Failed") -or (($JobStatus.Status) -eq "Stopped") ) {
                     #
                     # Runbook completed or failed, no need to parse more
@@ -233,7 +233,7 @@ Write-Output "DEBUG"
                     # Runbook did not completed
                     #
                     $TimeSpan  = New-TimeSpan -Start $StartDate -End (Get-date)
-                    Write-Output "Checking Runbook job processing time : $($TimeSpan.TotalMinutes)."
+                    Write-Output "Checking Runbook job processing time : $(($TimeSpan.TotalMinutes))."
                     If (($TimeSpan.TotalMinutes) -gt $FirewallRunbookMaximumProcessionTime) {
                         #
                         # Exit also if Runbook execution time is too long

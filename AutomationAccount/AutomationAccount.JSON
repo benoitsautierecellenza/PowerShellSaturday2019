@@ -94,9 +94,7 @@
                 "type": "PowerShell",
                 "scriptUri": "[concat(parameters('_artifactsLocation'),'/scripts/FirstRunbook.ps1',parameters('_artifactsLocationSasToken'))]"
             }
-
         ]
-       
       },
       "resources": [
         {
@@ -217,5 +215,3 @@
       ],
       "outputs": {}
     }
-  
-
