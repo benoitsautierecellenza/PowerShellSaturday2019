@@ -5,7 +5,6 @@
 #
 # Todo : https://github.com/MicrosoftDocs/azure-docs/blob/master/includes/azure-policy-limits.md Fonction de cleanup des policy non utilisées sur un Management Group
 #
-
 Param(
     [Parameter(Mandatory=$True)]
     [ValidateNotnullorEmpty()]
@@ -17,10 +16,8 @@ Param(
 )
 [String]$SubscriptionID = "5be15500-7328-4beb-871a-1498cd4b4536"
 Set-AzContext -SubscriptionId $SubscriptionID
-
 $TestManagementGroup = Get-AzManagementGroup -GroupName $ManagementGroupName
-If ([string]::IsNullOrEmpty($TestManagementGroup) -eq $True)
-{
+If ([string]::IsNullOrEmpty($TestManagementGroup) -eq $True) {
     Throw "Management group named $ManagementGroupName does not exists."
 }
 else {
@@ -99,8 +96,7 @@ foreach($Assignment in $policies.Assignments.GetEnumerator()) {
     #
     # Check if Azure Policy Exists
     #
-    If ([string]::IsNullOrEmpty($PolicyDefinition) -eq $false)
-    {
+    If ([string]::IsNullOrEmpty($PolicyDefinition) -eq $false) {
         Write-Output "Azure Policy $($Assignment.Value.PolicyName) exists at Management group $($Assignment.Value.ManagementGroupName) level."
     }
     else {
@@ -110,42 +106,15 @@ foreach($Assignment in $policies.Assignments.GetEnumerator()) {
     # Prepare Policy Assignment
     #
     [String]$PolicyAssignname = $($Assignment.Name)  + "_" + $Build    
-    $AssignParameters = @{
-    }
-    ForEach ($Parameter in $Assignment.Value.Parameters.GetEnumerator())
-    {
+    $AssignParameters = @{}
+    ForEach ($Parameter in $Assignment.Value.Parameters.GetEnumerator()) {
         $AssignParameters.Add($Parameter.name, $Parameter.Value)
-
     }
     #
     # Perform Policy Assignments
     #
-# Tester ici si l'assignation fonctionne réellement pour la seconde policy
     New-AzPolicyAssignment -Name $PolicyAssignname `
         -PolicyDefinition $PolicyDefinition `
         -Scope $Assignment.Value.Scope `
         -PolicyParameterObject $AssignParameters
 }
-
-
-
-exit
-
-
-#
-# Assign AZ-ALLOWEDTAGVALUES Policy
-#
-Write-Output "Assign AZ-ALLOWEDTAGVALUES Policy"
-$PolicyName = "AllowedTagValues4UpdatePolicy"
-[String]$PolicyAssignname = "MGMT01-VM-P2"  + "_" + $Build
-$UpdatePolicyTagName = "UpdatePolicy"
-$AllowedValues = @("AlwaysReboot", "RebootIfRequired", "OnlyReboot", "NeverReboot")
-$PolicyDefinition = Get-AzPolicyDefinition -ManagementGroupName $ManagementGroupName -Custom | Where-Object {$_.name -eq $PolicyName}
-$AssignParameters = @{
-    'UpdatePolicyTagName' = $UpdatePolicyTagName;
-    'UpdatePolicyTagAllowedValues' = ($AllowedValues)
-}
-New-AzPolicyAssignment -Name $PolicyAssignname `
-    -PolicyDefinition $PolicyDefinition `
-    -Scope $Scope `
-    -PolicyParameterObject $AssignParameters

@@ -22,7 +22,6 @@
 [Int]$DeployBluePrintAlreadyExists_ReturnCode = 1
 
 [Int]$ProcessedRoles = 0
-
 #
 # Begin functions
 #
@@ -33,8 +32,7 @@ Function LogMessage(
     [ValidateSet("Information","Warning","Error")]
     [Parameter(Mandatory=$True)]
     $Level
-    )
-{
+    ) {
     $ProcessingTime = $((get-date).ToLocalTime()).ToString("yyyy-MM-dd HH:mm:ss")
     Switch($Level)
     {
@@ -57,13 +55,12 @@ Function Deploy-BluePrint(
     
     [Parameter(Mandatory=$False)]
     [String]$ManagementGroupID
-)
-{
+) {
+    "INDIDE"
     [Bool]$FullArtifactImportSuccess_Flag = $True
     Logmessage -Message "[Deploy-BluePrint] - Begin $BlueprintRootPath." -Level Information
     $CheckVersionFile =[System.IO.File]::Exists($($BlueprintRootPath + "\$VersionFileName")) 
-    If ($CheckVersionFile -eq $True)
-    {
+    If ($CheckVersionFile -eq $True) {
         Logmessage -Message "[Deploy-BluePrint] - $VersionFileName file found at root of $BlueprintRootPath." -Level Information 
         [String]$BluePrintName = (get-item -Path $BlueprintRootPath).Name
         [String]$BluePrintVersion = get-content $($BlueprintRootPath + "\$VersionFileName")
@@ -118,8 +115,7 @@ Function Deploy-BluePrint(
             }
             LogMessage -message "[Deploy-BluePrint] - BluePrint artefact $($file.name) processed successfully for BluePrint $BluePrintName." -level Information
         }
-        If ($FullArtifactImportSuccess_Flag -eq $true)
-        {
+        If ($FullArtifactImportSuccess_Flag -eq $true) {
             #
             # All Blueprint artefacts imported successfully, publish the Blueprint with version
             #
@@ -150,17 +146,14 @@ Function Deploy-RoleDependencies (
     [ValidateNotnullorEmpty()]
     [Parameter(Mandatory=$True)]
     [String]$FolderName
-)
-{
+) {
     $SaveLocation = Get-Location
     Set-Location -Path $FolderName
     $DependenciesFolders = Get-ChildItem -Directory
-    If ($DependenciesFolders.Count -Gt 0)
-    {
+    If ($DependenciesFolders.Count -Gt 0) {
         Foreach($DependenciesFolder in $DependenciesFolders) {
             $DependencyFolderName = $($DependenciesFolder.name).tolower()
-            Switch($DependencyFolderName)
-            {
+            Switch($DependencyFolderName) {
                 $AlertFolderName  {
                     LogMessage -message "[Deploy-RoleDependencies] - Folder $AlertFolderName found. Alerts will be processed." -Level Information
                 }      
@@ -188,17 +181,14 @@ Function Deploy-RoleScripts
     [ValidateNotnullorEmpty()]
     [Parameter(Mandatory=$True)]
     [String]$FolderName
-)
-{
+) {
     $SaveLocation = Get-Location
     Set-Location -Path $FolderName
     $DependenciesFolders = Get-ChildItem -Directory
-    If ($DependenciesFolders.Count -Gt 0)
-    {
+    If ($DependenciesFolders.Count -Gt 0) {
         Foreach($DependenciesFolder in $DependenciesFolders) {
             $DependencyFolderName = $($DependenciesFolder.name).tolower()
-            Switch($DependencyFolderName)
-            {
+            Switch($DependencyFolderName) {
                 $PreDeployScriptFolderName  {
                     LogMessage -message "[Deploy-RoleScripts] - Folder $PreDeployScriptFolderName found. Pre-Deploy scripts will be processed." -Level Information
                 }      
@@ -215,101 +205,96 @@ Function Deploy-RoleScripts
     Set-location -Path $savelocation
 }
 
-Function CleanBluePrint()
-{
+Function CleanBluePrint() {
     #
     # https://github.com/MicrosoftDocs/azure-docs/blob/master/includes/azure-policy-limits.md Purger les Blueprints non assignés sur un management group (et en dessous)
     #
 }
 
-Function Deploy()
-{
+Function Deploy() {
     LogMessage -Message "[Main] - Begin."  -level "Information"
-#
-# Check for ROLES subfolder
-# OK
-$TestRolesRootFolder = Get-ChildItem $RolesRootFolder -Directory 
-if((($TestRolesRootFolder.name) -contains $RolesFolder) -eq $False) {
     #
-    # Roles ub-folder does not exists
+    # Check for ROLES subfolder
     # OK
-    Logmessage -Message "[Main] - Unable to locate sub-folder $RolesFolder in $RolesRootFolder." -Level "Error"
-    return $MissingRootFolder_ErrorCode
-    Exit
-}
-Else
-{
+    $TestRolesRootFolder = Get-ChildItem $RolesRootFolder -Directory 
+    if((($TestRolesRootFolder.name) -contains $RolesFolder) -eq $False) {
+        #
+        # Roles sub-folder does not exists
+        # OK
+        Logmessage -Message "[Main] - Unable to locate sub-folder $RolesFolder in $RolesRootFolder." -Level "Error"
+        return $MissingRootFolder_ErrorCode
+        Exit
+    }
+    Else {
+        #
+        # Roles Sub-Folder found
+        # OK
+        LogMessage -Message "[Main] - Sub-folder $RolesFolder found in $RolesRootFolder." -Level "Information"
+    }
     #
-    # Roles Sub-Folder found
-    # OK
-    LogMessage -Message "[Main] - Sub-folder $RolesFolder found in $RolesRootFolder." -Level "Information"
-}
-#
-# Première passe : Identifier les scripts et dépendances à traiter avant déploiement pour alimenter des listes
-# TODO
-$FoldersList = Get-ChildItem -Path ".\$RolesFolder" -Recurse -Directory
-$FoldersList.FullName -like "*\$PreDeployScriptFolderName"
-$FoldersList.FullName -like "*\$PostDeployScriptFolderName"
-#
-# Processing each sub-folder as a role
-#
-$SaveSubscription = Get-Azcontext # Save to restore at the end
-Set-AzContext -SubscriptionID $SubscriptionID
-$Savelocation = Get-Location    
-[String]$RolesRootFolder = (get-location).path + "\$RolesFolder\"
-$ProcessedFolders = Get-ChildItem $RolesRootFolder -Directory
-foreach($RoleRootFolder in $ProcessedFolders) {
+    # Première passe : Identifier les scripts et dépendances à traiter avant déploiement pour alimenter des listes
+    # TODO
+    $FoldersList = Get-ChildItem -Path ".\$RolesFolder" -Recurse -Directory
+    $FoldersList.FullName -like "*\$PreDeployScriptFolderName"
+    $FoldersList.FullName -like "*\$PostDeployScriptFolderName"
     #
-    # Process each role $PreDeployScriptFolderName 
+    # Processing each sub-folder as a role
     #
-    $ProcessedRoles +=1
-    Set-location $RoleRootFolder
-    $ProcessedRoleName = (Get-Item $RoleRootFolder).name
-    Logmessage -Message "[Main] - Processing Role $ProcessedRoleName." -Level "Information"
-#
-# Intégrer ici le processing des PREDEPLOY scripts
-#
-    $FoldersInRole = Get-ChildItem -Directory
-    #
-    # Process each subfolders in each role, filtering specific names
-    # 
-    [Int]$Count_ProcessedBluePrintsInRole = 0
-    [Int]$Count_SuccessBluePrintsInRole = 0
-    [Int]$Count_FailedBluePrintsInRole = 0
-    ForEach ($folder in $FoldersInRole) {
-
-        Switch(($folder.name).tolower()) {
-            $DependenciesFolderName {
-                # Revoir, il faut une première passe pour identifier les répertoires contenant les dependances
-                Deploy-RoleDependencies -Rolename $ProcessedRoleName -folderName  $folder.fullname            
-            }
-            $ScriptsFolderName {
-                # Revoir, il faut une première passe pour identifier les répertoires contenant les dependances
-                Deploy-RoleScripts -Rolename $ProcessedRoleName -folderName  $folder.fullname           
-            }
-            default {
-                $Count_ProcessedBluePrintsInRole += 1
-                $retour = Deploy-BluePrint $folder.FullName -ManagementGroupID $ManagementGroupname # Later import au niveau souscription?
-                switch ($retour) {
-                    $true {
-                        $Count_SuccessBluePrintsInRole += 1
-                    }
-                    $DeployBluePrintAlreadyExists_ReturnCode {
-                        $Count_SuccessBluePrintsInRole +=1
-                    }
-                    default {
-                        $Count_FailedBluePrintsInRole +=1
+    $SaveSubscription = Get-Azcontext # Save to restore at the end
+    Set-AzContext -SubscriptionID $SubscriptionID
+    $Savelocation = Get-Location    
+    [String]$RolesRootFolder = (get-location).path + "\$RolesFolder\"
+    $ProcessedFolders = Get-ChildItem $RolesRootFolder -Directory
+    foreach($RoleRootFolder in $ProcessedFolders) {
+        #
+        # Process each role $PreDeployScriptFolderName 
+        #
+        $ProcessedRoles +=1
+        Set-location $RoleRootFolder
+        $ProcessedRoleName = (Get-Item $RoleRootFolder).name
+        Logmessage -Message "[Main] - Processing Role $ProcessedRoleName." -Level "Information"
+        #
+        # Intégrer ici le processing des PREDEPLOY scripts
+        #
+        $FoldersInRole = Get-ChildItem -Directory
+        #
+        # Process each subfolders in each role, filtering specific names
+        # 
+        [Int]$Count_ProcessedBluePrintsInRole = 0
+        [Int]$Count_SuccessBluePrintsInRole = 0
+        [Int]$Count_FailedBluePrintsInRole = 0
+        ForEach ($folder in $FoldersInRole) {
+            Switch(($folder.name).tolower()) {
+                $DependenciesFolderName {
+                    # Revoir, il faut une première passe pour identifier les répertoires contenant les dependances
+                    Deploy-RoleDependencies -Rolename $ProcessedRoleName -folderName  $folder.fullname            
+                }
+                $ScriptsFolderName {
+                    # Revoir, il faut une première passe pour identifier les répertoires contenant les dependances
+                    Deploy-RoleScripts -Rolename $ProcessedRoleName -folderName  $folder.fullname           
+                }
+                default {
+                    $Count_ProcessedBluePrintsInRole += 1
+                    $retour = Deploy-BluePrint $folder.FullName -ManagementGroupID $ManagementGroupname # Later import au niveau souscription?
+                    switch ($retour) {
+                        $true {
+                            $Count_SuccessBluePrintsInRole += 1
+                        }
+                        $DeployBluePrintAlreadyExists_ReturnCode {
+                            $Count_SuccessBluePrintsInRole +=1
+                        }
+                        default {
+                            $Count_FailedBluePrintsInRole +=1
+                        }
                     }
                 }
-                    
             }
+            #Traitement des POSTDEPLOY
         }
-        #Traitement des POSTDEPLOY
-    }
-    Logmessage -Message "[Main] - Role $ProcessedRoleName processed." -Level "Information"
-    #
-    # Intégrer ic le traitement des postDEPLOY
-    #
+        Logmessage -Message "[Main] - Role $ProcessedRoleName processed." -Level "Information"
+        #
+        # Intégrer ic le traitement des postDEPLOY
+        #
 }
 Logmessage -Message "[Main] - Processed roles $ProcessedRoles." -Level Information
 Set-AzContext -SubscriptionId $SaveSubscription.Subscription.id
@@ -340,4 +325,5 @@ $TestBluePrintAssignment = New-AzBlueprintAssignment -Blueprint $PublishedBluePr
 #
 # end functions
 #
+
 Deploy

@@ -1,0 +1,1 @@
+. .\BuildPolicies.PS1 -Build 1.0 -ManagementGroupName MGMT01
