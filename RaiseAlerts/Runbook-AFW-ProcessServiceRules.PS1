@@ -189,7 +189,7 @@ Write-Output "[AFW-ProcessServiceRules] - New Rule created From JSON definition.
 # Build Azure Firewall collections for the new object to declare in Azure Firewall Configuration
 # OK
 $FirewallLock = $null
-#try {
+# try {
     #
     # Build new Azure Firewall configuration
     # OK
@@ -219,7 +219,7 @@ $FirewallLock = $null
                 $lock = Get-AzResourceLock -ResourceGroupName $AzureFirewall.resourcegroupname -ResourceName $AzureFirewall.Name -ResourceType Microsoft.Network/azureFirewalls
                 If ([string]::IsNullOrEmpty($lock) -eq $True) {
                     $LockExit_Flag= $True
-                    Write-Output "[AFW-ProcessServiceRules] Azure Firewall $($AzureFirewall.name) is no longer locked."
+                    Write-Output "[AFW-ProcessServiceRules] - Azure Firewall $($AzureFirewall.name) is no longer locked."
                 }     
             } Until ($LockExit_Flag -eq $true)
         }
@@ -355,25 +355,36 @@ $FirewallLock = $null
         else {
             Write-Output "[AFW-ProcessServiceRules] - Network rule collection $NetworkGroupRuleName not yet already exists. Will be created."
         }
-        if (($AzureFirewallConfig.ApplicationRuleCollections.name) -contains $ApplicationGroupRuleName) {
-            #
-            # Search for existing Application Collection Rule and delete if exists
-            #
-            Write-Output "[AFW-ProcessServiceRules] - Azure Firewall Application Collection Rule named $ApplicationGroupRuleName, will be deleted to inject new content."
-            $AzureFirewallConfig.RemoveApplicationRuleCollectionByName($ApplicationGroupRuleName)
+        #
+        # Issue to fix if $AzureFirewallConfig.ApplicationRuleCollections.name) does not exists in JSON
+        #
+        If ([string]::IsNullOrEmpty($($AzureFirewallConfig.ApplicationRuleCollections.name)) -eq $False) {
+            if (($AzureFirewallConfig.ApplicationRuleCollections.name) -contains $ApplicationGroupRuleName) {
+                #
+                # Search for existing Application Collection Rule and delete if exists
+                #
+                Write-Output "[AFW-ProcessServiceRules] - Azure Firewall Application Collection Rule named $ApplicationGroupRuleName, will be deleted to inject new content."
+                $AzureFirewallConfig.RemoveApplicationRuleCollectionByName($ApplicationGroupRuleName)
+            }
+            else {
+                Write-Output "[AFW-ProcessServiceRules] - No existing Azure Firewall Application Collection Rule found to delete."
+            }
         }
-        else {
-	        Write-Output "[AFW-ProcessServiceRules] - No existing Azure Firewall Application Collection Rule found to delete."
-        }
-        if (($AzureFirewallConfig.NetworkRuleCollections.name) -contains $NetworkGroupRulename) {
-            #
-            # Search for existing Network Collection Rule and delete if exists
-            #
-            Write-Output "[AFW-ProcessServiceRules] - Azure Firewall Network Collection Rule named $NetworkGroupRulename, will be deleted to inject new content."
-            $AzureFirewallConfig.RemoveNetworkRuleCollectionByName($NetworkGroupRulename)
-        }
-        else {
-	        Write-Output "[AFW-ProcessServiceRules] - No existing Azure Firewall Network Collection Rule found to delete."
+        If ([string]::IsNullOrEmpty($($AzureFirewallConfig.NetworkRuleCollections.name)) -eq $False) {
+            Write-Output "debug"
+            Write-Output        $($AzureFirewallConfig.NetworkRuleCollections.name)
+            Write-Output "Rule name $NetworkGroupRulename"
+            Write-Output "debug"
+                    if (($AzureFirewallConfig.NetworkRuleCollections.name) -contains $NetworkGroupRulename) {
+                        #
+                        # Search for existing Network Collection Rule and delete if exists
+                        #
+                        Write-Output "[AFW-ProcessServiceRules] - Azure Firewall Network Collection Rule named $NetworkGroupRulename, will be deleted to inject new content."
+                        $AzureFirewallConfig.RemoveNetworkRuleCollectionByName($NetworkGroupRulename)
+                    }
+                    else {
+                        Write-Output "[AFW-ProcessServiceRules] - No existing Azure Firewall Network Collection Rule found to delete."
+                    }
         }
         #
         # Merge existing and new Application Collection rule into a new collection
@@ -454,8 +465,8 @@ $FirewallLock = $null
 #catch {
 #    If ($FirewallLock -ne $null)
 #    {
-    #    Remove-AzResourceLock -LockId $FirewallLock.LockId -Force | Out-Null
+#        Remove-AzResourceLock -LockId $FirewallLock.LockId -Force | Out-Null
 #    }
 #    Write-Output "[ERROR] - $($_.Exception)."
-#    Write-Output "[ERROR]"
+#   Write-Output "[ERROR]"
 #}
