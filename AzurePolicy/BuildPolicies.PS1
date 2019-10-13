@@ -14,7 +14,7 @@ Param(
     [String]$ManagementGroupName
 
 )
-[String]$SubscriptionID = "5be15500-7328-4beb-871a-1498cd4b4536"
+[String]$SubscriptionID = "<Your subscription ID>"
 Set-AzContext -SubscriptionId $SubscriptionID
 $TestManagementGroup = Get-AzManagementGroup -GroupName $ManagementGroupName
 If ([string]::IsNullOrEmpty($TestManagementGroup) -eq $True) {

@@ -7,9 +7,9 @@ Install-Module -Name 'AzureAD.Standard.Preview' -Force -Scope CurrentUser -SkipP
 import-module azuread.standard.preview
 Connect-AzureAd
 Connect-AZAccount
-$SubscriptionID = "5be15500-7328-4beb-871a-1498cd4b4536"
+$SubscriptionID = "<Your subscriptionID>"
 Set-AzContext -subscriptionID $SubscriptionID
-
+#
 # Demo n°1
 # Find modules with dependencies
 #

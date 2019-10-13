@@ -1,5 +1,5 @@
-[String]$ManagementGroupname = "MGMT01"
-[String]$SubscriptionID = "5be15500-7328-4beb-871a-1498cd4b4536"
+[String]$ManagementGroupname = "<Management Group ID>"
+[String]$SubscriptionID = "<Your subscription ID>"
 [String]$ArtifactFolder = "artifacts"
 [String]$RolesFolder = "Roles"
 [String]$VersionFileName = "version.txt"

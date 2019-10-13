@@ -253,7 +253,7 @@ ForeAch ($AzureFirewall in $AzureFirewallList) {
 			$lock = Get-AzResourceLock -ResourceGroupName $AzureFirewall.resourcegroupname -ResourceName $AzureFirewall.Name -ResourceType Microsoft.Network/azureFirewalls
 			If ([string]::IsNullOrEmpty($lock) -eq $True) {
 				$LockExit_Flag= $True
-				Write-Output "[AFW-ProcessServiceRules] Azure Firewall $($AzureFirewall.name) is no longer locked."
+				Write-Output "[AFW-ProcessServiceRules] - Azure Firewall $($AzureFirewall.name) is no longer locked."
 			}     
 		} Until ($LockExit_Flag -eq $true)
 	}
