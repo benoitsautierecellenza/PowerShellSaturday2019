@@ -138,8 +138,7 @@ else {
 # Check Azure AD Application
 # OK
 $testAzureAdApplication = Get-AzureADApplication -All $true | where-Object {$_.displayname -like $AutomationAzureADApplicationName}
-If ([string]::IsNullOrEmpty($testAzureAdApplication) -eq $True)
-{
+If ([string]::IsNullOrEmpty($testAzureAdApplication) -eq $True) {
     #
     # Azure AD application exists in Azure AD     
     # OK
@@ -147,10 +146,8 @@ If ([string]::IsNullOrEmpty($testAzureAdApplication) -eq $True)
     Write-Error $message
     exit
 }
-else 
-{
-    If ($testAzureAdApplication.count -eq 1)
-    {
+else {
+    If ($testAzureAdApplication.count -eq 1) {
         #
         # Azure AD Application already exists in Azure AD
         # OK
@@ -175,15 +172,12 @@ If ($TestCertificateExists.count -eq 0) {
 }
 else {
     Write-Output "[Configure-AutomationSecurity] - Certificate named $AutomationAzureADApplicationName found in Keyvault $SolutionKeyVaultName."
-
-
 }
 #
 # Remove existing assets in Azure Automation account related to authentication
 #
 $testCertificateAsset = Get-AzAutomationCertificate -ResourceGroupName $SolutionResourceGroupname -automationAccountName $SolutionAutomationAccountName   -Name $certifcateAssetName -ErrorAction SilentlyContinue
-If([string]::IsNullOrEmpty($testCertificateAsset) -eq $False)        
-{
+If([string]::IsNullOrEmpty($testCertificateAsset) -eq $False)  {
     Write-Output "[Configure-AutomationSecurity] - Removing existing certificate asset $certifcateAssetName from Azure Automation Account $SolutionAutomationAccountName."
     Remove-AzAutomationCertificate -ResourceGroupName $SolutionResourceGroupname -automationAccountName $SolutionAutomationAccountName   -Name $certifcateAssetName    
     Write-Output "[Configure-AutomationSecurity] - Certificate asset  $certifcateAssetName deleted from Azure Automation Account $SolutionAutomationAccountName."
@@ -250,12 +244,3 @@ New-AzAutomationConnection -ResourceGroupName $SolutionResourceGroupname -automa
 Get-ChildItem $PfxCertPathForRunAsAccount | Remove-Item | Out-Null
 $CertPassword = $Null
 Write-Output "[Configure-AutomationSecurity] - Azure Automation account $SolutionAutomationAccountName successfully initialized."  
-
-
-#}
-#catch 
-#{
-#    Write-Warning "[ERROR] - Error while creating Azure Automation instance $SolutionAutomationAccountName."   
-#    $CertPassword = $Null
-#    exit
-#}
